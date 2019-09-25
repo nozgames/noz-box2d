@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
-    <RootNamespace>NoZ.Physics</RootNamespace>
+    <RootNamespace>NoZ.Platform.Box2D</RootNamespace>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\libs\noz\NoZ.csproj" />
+    <ProjectReference Include="..\noz\NoZ.csproj" />
   </ItemGroup>
 
 </Project>
