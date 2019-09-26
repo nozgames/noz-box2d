@@ -1,653 +1,982 @@
-﻿/*
-  Box2DX Copyright (c) 2008 Ihar Kalasouski http://code.google.com/p/box2dx
-  Box2D original C++ version Copyright (c) 2006-2007 Erin Catto http://www.gphysics.com
-
-  This software is provided 'as-is', without any express or implied
-  warranty.  In no event will the authors be held liable for any damages
-  arising from the use of this software.
-
-  Permission is granted to anyone to use this software for any purpose,
-  including commercial applications, and to alter it and redistribute it
-  freely, subject to the following restrictions:
-
-  1. The origin of this software must not be misrepresented; you must not
-     claim that you wrote the original software. If you use this software
-     in a product, an acknowledgment in the product documentation would be
-     appreciated but is not required.
-  2. Altered source versions must be plainly marked as such, and must not be
-     misrepresented as being the original software.
-  3. This notice may not be removed or altered from any source distribution.
+/*
+* Farseer Physics Engine:
+* Copyright (c) 2012 Ian Qvist
+* 
+* Original source Box2D:
+* Copyright (c) 2006-2011 Erin Catto http://www.box2d.org 
+* 
+* This software is provided 'as-is', without any express or implied 
+* warranty.  In no event will the authors be held liable for any damages 
+* arising from the use of this software. 
+* Permission is granted to anyone to use this software for any purpose, 
+* including commercial applications, and to alter it and redistribute it 
+* freely, subject to the following restrictions: 
+* 1. The origin of this software must not be misrepresented; you must not 
+* claim that you wrote the original software. If you use this software 
+* in a product, an acknowledgment in the product documentation would be 
+* appreciated but is not required. 
+* 2. Altered source versions must be plainly marked as such, and must not be 
+* misrepresented as being the original software. 
+* 3. This notice may not be removed or altered from any source distribution. 
 */
 
-//#define B2_DEBUG_SOLVER
-#define FIRST
-
 using System;
-using System.Collections.Generic;
-using System.Text;
+using System.Diagnostics;
+using FarseerPhysics.Collision;
+using FarseerPhysics.Collision.Shapes;
+using FarseerPhysics.Common;
+using Microsoft.Xna.Framework;
 
-using Box2DX.Collision;
-using Box2DX.Common;
-
-namespace Box2DX.Dynamics
+namespace FarseerPhysics.Dynamics.Contacts
 {
-#warning "CAS"
-	public class ContactConstraintPoint
-	{
-		public Vec2 LocalAnchor1;
-		public Vec2 LocalAnchor2;
-		public Vec2 R1;
-		public Vec2 R2;
-		public float NormalImpulse;
-		public float TangentImpulse;
-		public float NormalMass;
-		public float TangentMass;
-		public float EqualizedMass;
-		public float Separation;
-		public float VelocityBias;
-	}
+    public sealed class ContactPositionConstraint
+    {
+        public Vector2[] localPoints = new Vector2[Settings.MaxManifoldPoints];
+        public Vector2 localNormal;
+        public Vector2 localPoint;
+        public int indexA;
+        public int indexB;
+        public float invMassA, invMassB;
+        public Vector2 localCenterA, localCenterB;
+        public float invIA, invIB;
+        public ManifoldType type;
+        public float radiusA, radiusB;
+        public int pointCount;
+    }
 
-#warning "CAS"
-	public class ContactConstraint
-	{
-		public ContactConstraintPoint[] Points = new ContactConstraintPoint[Settings.MaxManifoldPoints];
-		public Vec2 Normal;
-		public Mat22 NormalMass;
-		public Mat22 K;
-		public Manifold Manifold;
-		public Body Body1;
-		public Body Body2;
-		public float Friction;
-		public float Restitution;
-		public int PointCount;
+    public sealed class VelocityConstraintPoint
+    {
+        public Vector2 rA;
+        public Vector2 rB;
+        public float normalImpulse;
+        public float tangentImpulse;
+        public float normalMass;
+        public float tangentMass;
+        public float velocityBias;
+    }
 
-		public ContactConstraint()
-		{
-			for (int i = 0; i < Settings.MaxManifoldPoints; i++)
-				Points[i] = new ContactConstraintPoint();
-		}
-	}
+    public sealed class ContactVelocityConstraint
+    {
+        public VelocityConstraintPoint[] points = new VelocityConstraintPoint[Settings.MaxManifoldPoints];
+        public Vector2 normal;
+        public Mat22 normalMass;
+        public Mat22 K;
+        public int indexA;
+        public int indexB;
+        public float invMassA, invMassB;
+        public float invIA, invIB;
+        public float friction;
+        public float restitution;
+        public float tangentSpeed;
+        public int pointCount;
+        public int contactIndex;
 
-	public class ContactSolver : IDisposable
-	{
-		public TimeStep _step;
-		public ContactConstraint[] _constraints;
-		public int _constraintCount;
+        public ContactVelocityConstraint()
+        {
+            for (int i = 0; i < Settings.MaxManifoldPoints; i++)
+            {
+                points[i] = new VelocityConstraintPoint();
+            }
+        }
+    }
 
-		public ContactSolver(TimeStep step, Contact[] contacts, int contactCount)
-		{
-			_step = step;
+    public class ContactSolver
+    {
+        public TimeStep _step;
+        public Position[] _positions;
+        public Velocity[] _velocities;
+        public ContactPositionConstraint[] _positionConstraints;
+        public ContactVelocityConstraint[] _velocityConstraints;
+        public Contact[] _contacts;
+        public int _count;
 
-			_constraintCount = 0;
-			for (int i = 0; i < contactCount; ++i)
-			{
-				Box2DXDebug.Assert(contacts[i].IsSolid());
-				_constraintCount += contacts[i].GetManifoldCount();
-			}
+        public void Reset(TimeStep step, int count, Contact[] contacts, Position[] positions, Velocity[] velocities, bool warmstarting = Settings.EnableWarmstarting)
+        {
+            _step = step;
+            _count = count;
+            _positions = positions;
+            _velocities = velocities;
+            _contacts = contacts;
 
-			_constraints = new ContactConstraint[_constraintCount];
-			for (int i = 0; i < _constraintCount; i++)
-				_constraints[i] = new ContactConstraint();
+            // grow the array
+            if (_velocityConstraints == null || _velocityConstraints.Length < count)
+            {
+                _velocityConstraints = new ContactVelocityConstraint[count * 2];
+                _positionConstraints = new ContactPositionConstraint[count * 2];
 
-			int count = 0;
-			for (int i = 0; i < contactCount; ++i)
-			{
-				Contact contact = contacts[i];
+                for (int i = 0; i < _velocityConstraints.Length; i++)
+                {
+                    _velocityConstraints[i] = new ContactVelocityConstraint();
+                }
 
-				Shape shape1 = contact._shape1;
-				Shape shape2 = contact._shape2;
-				Body b1 = shape1.GetBody();
-				Body b2 = shape2.GetBody();
-				int manifoldCount = contact.GetManifoldCount();
-				Manifold[] manifolds = contact.GetManifolds();
+                for (int i = 0; i < _positionConstraints.Length; i++)
+                {
+                    _positionConstraints[i] = new ContactPositionConstraint();
+                }
+            }
 
-				float friction = Settings.MixFriction(shape1.Friction, shape2.Friction);
-				float restitution = Settings.MixRestitution(shape1.Restitution, shape2.Restitution);
+            // Initialize position independent portions of the constraints.
+            for (int i = 0; i < _count; ++i)
+            {
+                Contact contact = contacts[i];
 
-				Vec2 v1 = b1._linearVelocity;
-				Vec2 v2 = b2._linearVelocity;
-				float w1 = b1._angularVelocity;
-				float w2 = b2._angularVelocity;
+                Fixture fixtureA = contact.FixtureA;
+                Fixture fixtureB = contact.FixtureB;
+                Shape shapeA = fixtureA.Shape;
+                Shape shapeB = fixtureB.Shape;
+                float radiusA = shapeA.Radius;
+                float radiusB = shapeB.Radius;
+                Body bodyA = fixtureA.Body;
+                Body bodyB = fixtureB.Body;
+                Manifold manifold = contact.Manifold;
 
-				for (int j = 0; j < manifoldCount; ++j)
-				{
-					Manifold manifold = manifolds[j];
+                int pointCount = manifold.PointCount;
+                Debug.Assert(pointCount > 0);
 
-					Box2DXDebug.Assert(manifold.PointCount > 0);
+                ContactVelocityConstraint vc = _velocityConstraints[i];
+                vc.friction = contact.Friction;
+                vc.restitution = contact.Restitution;
+                vc.tangentSpeed = contact.TangentSpeed;
+                vc.indexA = bodyA.IslandIndex;
+                vc.indexB = bodyB.IslandIndex;
+                vc.invMassA = bodyA._invMass;
+                vc.invMassB = bodyB._invMass;
+                vc.invIA = bodyA._invI;
+                vc.invIB = bodyB._invI;
+                vc.contactIndex = i;
+                vc.pointCount = pointCount;
+                vc.K.SetZero();
+                vc.normalMass.SetZero();
 
-					Vec2 normal = manifold.Normal;
+                ContactPositionConstraint pc = _positionConstraints[i];
+                pc.indexA = bodyA.IslandIndex;
+                pc.indexB = bodyB.IslandIndex;
+                pc.invMassA = bodyA._invMass;
+                pc.invMassB = bodyB._invMass;
+                pc.localCenterA = bodyA._sweep.LocalCenter;
+                pc.localCenterB = bodyB._sweep.LocalCenter;
+                pc.invIA = bodyA._invI;
+                pc.invIB = bodyB._invI;
+                pc.localNormal = manifold.LocalNormal;
+                pc.localPoint = manifold.LocalPoint;
+                pc.pointCount = pointCount;
+                pc.radiusA = radiusA;
+                pc.radiusB = radiusB;
+                pc.type = manifold.Type;
 
-					Box2DXDebug.Assert(count < _constraintCount);
-					ContactConstraint cc = _constraints[count];
-					cc.Body1 = b1;
-					cc.Body2 = b2;
-					cc.Manifold = manifold;
-					cc.Normal = normal;
-					cc.PointCount = manifold.PointCount;
-					cc.Friction = friction;
-					cc.Restitution = restitution;
+                for (int j = 0; j < pointCount; ++j)
+                {
+                    ManifoldPoint cp = manifold.Points[j];
+                    VelocityConstraintPoint vcp = vc.points[j];
 
-					for (int k = 0; k < cc.PointCount; ++k)
-					{
-						ManifoldPoint cp = manifold.Points[k];
-						ContactConstraintPoint ccp = cc.Points[k];
+                    if (Settings.EnableWarmstarting)
+                    {
+                        vcp.normalImpulse = _step.dtRatio * cp.NormalImpulse;
+                        vcp.tangentImpulse = _step.dtRatio * cp.TangentImpulse;
+                    }
+                    else
+                    {
+                        vcp.normalImpulse = 0.0f;
+                        vcp.tangentImpulse = 0.0f;
+                    }
 
-						ccp.NormalImpulse = cp.NormalImpulse;
-						ccp.TangentImpulse = cp.TangentImpulse;
-						ccp.Separation = cp.Separation;
+                    vcp.rA = Vector2.Zero;
+                    vcp.rB = Vector2.Zero;
+                    vcp.normalMass = 0.0f;
+                    vcp.tangentMass = 0.0f;
+                    vcp.velocityBias = 0.0f;
 
-						ccp.LocalAnchor1 = cp.LocalPoint1;
-						ccp.LocalAnchor2 = cp.LocalPoint2;
-						ccp.R1 = Common.Math.Mul(b1.GetXForm().R, cp.LocalPoint1 - b1.GetLocalCenter());
-						ccp.R2 = Common.Math.Mul(b2.GetXForm().R, cp.LocalPoint2 - b2.GetLocalCenter());
+                    pc.localPoints[j] = cp.LocalPoint;
+                }
+            }
+        }
 
-						float rn1 = Vec2.Cross(ccp.R1, normal);
-						float rn2 = Vec2.Cross(ccp.R2, normal);
-						rn1 *= rn1;
-						rn2 *= rn2;
+        public void InitializeVelocityConstraints()
+        {
+            for (int i = 0; i < _count; ++i)
+            {
+                ContactVelocityConstraint vc = _velocityConstraints[i];
+                ContactPositionConstraint pc = _positionConstraints[i];
 
-						float kNormal = b1._invMass + b2._invMass + b1._invI * rn1 + b2._invI * rn2;
+                float radiusA = pc.radiusA;
+                float radiusB = pc.radiusB;
+                Manifold manifold = _contacts[vc.contactIndex].Manifold;
 
-						Box2DXDebug.Assert(kNormal > Common.Settings.FLT_EPSILON);
-						ccp.NormalMass = 1.0f / kNormal;
+                int indexA = vc.indexA;
+                int indexB = vc.indexB;
 
-						float kEqualized = b1._mass * b1._invMass + b2._mass * b2._invMass;
-						kEqualized += b1._mass * b1._invI * rn1 + b2._mass * b2._invI * rn2;
+                float mA = vc.invMassA;
+                float mB = vc.invMassB;
+                float iA = vc.invIA;
+                float iB = vc.invIB;
+                Vector2 localCenterA = pc.localCenterA;
+                Vector2 localCenterB = pc.localCenterB;
 
-						Box2DXDebug.Assert(kEqualized > Common.Settings.FLT_EPSILON);
-						ccp.EqualizedMass = 1.0f / kEqualized;
+                Vector2 cA = _positions[indexA].c;
+                float aA = _positions[indexA].a;
+                Vector2 vA = _velocities[indexA].v;
+                float wA = _velocities[indexA].w;
 
-						Vec2 tangent = Vec2.Cross(normal, 1.0f);
+                Vector2 cB = _positions[indexB].c;
+                float aB = _positions[indexB].a;
+                Vector2 vB = _velocities[indexB].v;
+                float wB = _velocities[indexB].w;
 
-						float rt1 = Vec2.Cross(ccp.R1, tangent);
-						float rt2 = Vec2.Cross(ccp.R2, tangent);
-						rt1 *= rt1;
-						rt2 *= rt2;
+                Debug.Assert(manifold.PointCount > 0);
 
-						float kTangent = b1._invMass + b2._invMass + b1._invI * rt1 + b2._invI * rt2;
+                Transform xfA = new Transform();
+                Transform xfB = new Transform();
+                xfA.q.Set(aA);
+                xfB.q.Set(aB);
+                xfA.p = cA - MathUtils.Mul(xfA.q, localCenterA);
+                xfB.p = cB - MathUtils.Mul(xfB.q, localCenterB);
 
-						Box2DXDebug.Assert(kTangent > Common.Settings.FLT_EPSILON);
-						ccp.TangentMass = 1.0f / kTangent;
+                Vector2 normal;
+                FixedArray2<Vector2> points;
+                WorldManifold.Initialize(ref manifold, ref xfA, radiusA, ref xfB, radiusB, out normal, out points);
 
-						// Setup a velocity bias for restitution.
-						ccp.VelocityBias = 0.0f;
-						if (ccp.Separation > 0.0f)
-						{
-							ccp.VelocityBias = -step.Inv_Dt * ccp.Separation; // TODO_ERIN b2TimeStep
-						}
-						else
-						{
-							float vRel = Vec2.Dot(cc.Normal, v2 + Vec2.Cross(w2, ccp.R2) - v1 - Vec2.Cross(w1, ccp.R1));
-							if (vRel < -Settings.VelocityThreshold)
-							{
-								ccp.VelocityBias = -cc.Restitution * vRel;
-							}
-						}
-					}
+                vc.normal = normal;
 
-					// If we have two points, then prepare the block solver.
-					if (cc.PointCount == 2)
-					{
-						ContactConstraintPoint ccp1 = cc.Points[0];
-						ContactConstraintPoint ccp2 = cc.Points[1];
+                int pointCount = vc.pointCount;
+                for (int j = 0; j < pointCount; ++j)
+                {
+                    VelocityConstraintPoint vcp = vc.points[j];
 
-						float invMass1 = b1._invMass;
-						float invI1 = b1._invI;
-						float invMass2 = b2._invMass;
-						float invI2 = b2._invI;
+                    vcp.rA = points[j] - cA;
+                    vcp.rB = points[j] - cB;
 
-						float rn11 = Vec2.Cross(ccp1.R1, normal);
-						float rn12 = Vec2.Cross(ccp1.R2, normal);
-						float rn21 = Vec2.Cross(ccp2.R1, normal);
-						float rn22 = Vec2.Cross(ccp2.R2, normal);
+                    float rnA = MathUtils.Cross(vcp.rA, vc.normal);
+                    float rnB = MathUtils.Cross(vcp.rB, vc.normal);
 
-						float k11 = invMass1 + invMass2 + invI1 * rn11 * rn11 + invI2 * rn12 * rn12;
-						float k22 = invMass1 + invMass2 + invI1 * rn21 * rn21 + invI2 * rn22 * rn22;
-						float k12 = invMass1 + invMass2 + invI1 * rn11 * rn21 + invI2 * rn12 * rn22;
+                    float kNormal = mA + mB + iA * rnA * rnA + iB * rnB * rnB;
 
-						// Ensure a reasonable condition number.
-						const float k_maxConditionNumber = 100.0f;
-						if (k11 * k11 < k_maxConditionNumber * (k11 * k22 - k12 * k12))
-						{
-							// K is safe to invert.
-							cc.K.Col1.Set(k11, k12);
-							cc.K.Col2.Set(k12, k22);
-							cc.NormalMass = cc.K.Invert();
-						}
-						else
-						{
-							// The constraints are redundant, just use one.
-							// TODO_ERIN use deepest?
-							cc.PointCount = 1;
-						}
-					}
+                    vcp.normalMass = kNormal > 0.0f ? 1.0f / kNormal : 0.0f;
 
-					++count;
-				}
-			}
+                    Vector2 tangent = MathUtils.Cross(vc.normal, 1.0f);
 
-			Box2DXDebug.Assert(count == _constraintCount);
-		}
+                    float rtA = MathUtils.Cross(vcp.rA, tangent);
+                    float rtB = MathUtils.Cross(vcp.rB, tangent);
 
-		public void Dispose()
-		{
-			_constraints = null;
-		}
+                    float kTangent = mA + mB + iA * rtA * rtA + iB * rtB * rtB;
 
-		public void InitVelocityConstraints(TimeStep step)
-		{
-			// Warm start.
-			for (int i = 0; i < _constraintCount; ++i)
-			{
-				ContactConstraint c = _constraints[i];
+                    vcp.tangentMass = kTangent > 0.0f ? 1.0f / kTangent : 0.0f;
 
-				Body b1 = c.Body1;
-				Body b2 = c.Body2;
-				float invMass1 = b1._invMass;
-				float invI1 = b1._invI;
-				float invMass2 = b2._invMass;
-				float invI2 = b2._invI;
-				Vec2 normal = c.Normal;
-				Vec2 tangent = Vec2.Cross(normal, 1.0f);
+                    // Setup a velocity bias for restitution.
+                    vcp.velocityBias = 0.0f;
+                    float vRel = Vector2.Dot(vc.normal, vB + MathUtils.Cross(wB, vcp.rB) - vA - MathUtils.Cross(wA, vcp.rA));
+                    if (vRel < -Settings.VelocityThreshold)
+                    {
+                        vcp.velocityBias = -vc.restitution * vRel;
+                    }
+                }
 
-				if (step.WarmStarting)
-				{
-					for (int j = 0; j < c.PointCount; ++j)
-					{
-						ContactConstraintPoint ccp = c.Points[j];
-						ccp.NormalImpulse *= step.DtRatio;
-						ccp.TangentImpulse *= step.DtRatio;
-						Vec2 P = ccp.NormalImpulse * normal + ccp.TangentImpulse * tangent;
-						b1._angularVelocity -= invI1 * Vec2.Cross(ccp.R1, P);
-						b1._linearVelocity -= invMass1 * P;
-						b2._angularVelocity += invI2 * Vec2.Cross(ccp.R2, P);
-						b2._linearVelocity += invMass2 * P;
-					}
-				}
-				else
-				{
-					for (int j = 0; j < c.PointCount; ++j)
-					{
-						ContactConstraintPoint ccp = c.Points[j];
-						ccp.NormalImpulse = 0.0f;
-						ccp.TangentImpulse = 0.0f;
-					}
-				}
-			}
-		}
+                // If we have two points, then prepare the block solver.
+                if (vc.pointCount == 2)
+                {
+                    VelocityConstraintPoint vcp1 = vc.points[0];
+                    VelocityConstraintPoint vcp2 = vc.points[1];
 
-		public void SolveVelocityConstraints()
-		{
-			for (int i = 0; i < _constraintCount; ++i)
-			{
-				ContactConstraint c = _constraints[i];
-				Body b1 = c.Body1;
-				Body b2 = c.Body2;
-				float w1 = b1._angularVelocity;
-				float w2 = b2._angularVelocity;
-				Vec2 v1 = b1._linearVelocity;
-				Vec2 v2 = b2._linearVelocity;
-				float invMass1 = b1._invMass;
-				float invI1 = b1._invI;
-				float invMass2 = b2._invMass;
-				float invI2 = b2._invI;
-				Vec2 normal = c.Normal;
-				Vec2 tangent = Vec2.Cross(normal, 1.0f);
-				float friction = c.Friction;
+                    float rn1A = MathUtils.Cross(vcp1.rA, vc.normal);
+                    float rn1B = MathUtils.Cross(vcp1.rB, vc.normal);
+                    float rn2A = MathUtils.Cross(vcp2.rA, vc.normal);
+                    float rn2B = MathUtils.Cross(vcp2.rB, vc.normal);
 
-				Box2DXDebug.Assert(c.PointCount == 1 || c.PointCount == 2);
+                    float k11 = mA + mB + iA * rn1A * rn1A + iB * rn1B * rn1B;
+                    float k22 = mA + mB + iA * rn2A * rn2A + iB * rn2B * rn2B;
+                    float k12 = mA + mB + iA * rn1A * rn2A + iB * rn1B * rn2B;
 
-				// Solve normal constraints
-				if (c.PointCount == 1)
-				{
-					ContactConstraintPoint ccp = c.Points[0];
+                    // Ensure a reasonable condition number.
+                    const float k_maxConditionNumber = 1000.0f;
+                    if (k11 * k11 < k_maxConditionNumber * (k11 * k22 - k12 * k12))
+                    {
+                        // K is safe to invert.
+                        vc.K.ex = new Vector2(k11, k12);
+                        vc.K.ey = new Vector2(k12, k22);
+                        vc.normalMass = vc.K.Inverse;
+                    }
+                    else
+                    {
+                        // The constraints are redundant, just use one.
+                        // TODO_ERIN use deepest?
+                        vc.pointCount = 1;
+                    }
+                }
+            }
+        }
 
-					// Relative velocity at contact
-					Vec2 dv = v2 + Vec2.Cross(w2, ccp.R2) - v1 - Vec2.Cross(w1, ccp.R1);
+        public void WarmStart()
+        {
+            // Warm start.
+            for (int i = 0; i < _count; ++i)
+            {
+                ContactVelocityConstraint vc = _velocityConstraints[i];
 
-					// Compute normal impulse
-					float vn = Vec2.Dot(dv, normal);
-					float lambda = -ccp.NormalMass * (vn - ccp.VelocityBias);
+                int indexA = vc.indexA;
+                int indexB = vc.indexB;
+                float mA = vc.invMassA;
+                float iA = vc.invIA;
+                float mB = vc.invMassB;
+                float iB = vc.invIB;
+                int pointCount = vc.pointCount;
 
-					// Clamp the accumulated impulse
-					float newImpulse = Common.Math.Max(ccp.NormalImpulse + lambda, 0.0f);
-					lambda = newImpulse - ccp.NormalImpulse;
+                Vector2 vA = _velocities[indexA].v;
+                float wA = _velocities[indexA].w;
+                Vector2 vB = _velocities[indexB].v;
+                float wB = _velocities[indexB].w;
 
-					// Apply contact impulse
-					Vec2 P = lambda * normal;
+                Vector2 normal = vc.normal;
+                Vector2 tangent = MathUtils.Cross(normal, 1.0f);
 
-					v1 -= invMass1 * P;
-					w1 -= invI1 * Vec2.Cross(ccp.R1, P);
+                for (int j = 0; j < pointCount; ++j)
+                {
+                    VelocityConstraintPoint vcp = vc.points[j];
+                    Vector2 P = vcp.normalImpulse * normal + vcp.tangentImpulse * tangent;
+                    wA -= iA * MathUtils.Cross(vcp.rA, P);
+                    vA -= mA * P;
+                    wB += iB * MathUtils.Cross(vcp.rB, P);
+                    vB += mB * P;
+                }
 
-					v2 += invMass2 * P;
-					w2 += invI2 * Vec2.Cross(ccp.R2, P);
+                _velocities[indexA].v = vA;
+                _velocities[indexA].w = wA;
+                _velocities[indexB].v = vB;
+                _velocities[indexB].w = wB;
+            }
+        }
 
-					ccp.NormalImpulse = newImpulse;
-				}
-				else
-				{
-					// Block solver developed in collaboration with Dirk Gregorius (back in 01/07 on Box2D_Lite).
-					// Build the mini LCP for this contact patch
-					//
-					// vn = A * x + b, vn >= 0, , vn >= 0, x >= 0 and vn_i * x_i = 0 with i = 1..2
-					//
-					// A = J * W * JT and J = ( -n, -r1 x n, n, r2 x n )
-					// b = vn_0 - velocityBias
-					//
-					// The system is solved using the "Total enumeration method" (s. Murty). The complementary constraint vn_i * x_i
-					// implies that we must have in any solution either vn_i = 0 or x_i = 0. So for the 2D contact problem the cases
-					// vn1 = 0 and vn2 = 0, x1 = 0 and x2 = 0, x1 = 0 and vn2 = 0, x2 = 0 and vn1 = 0 need to be tested. The first valid
-					// solution that satisfies the problem is chosen.
-					// 
-					// In order to account of the accumulated impulse 'a' (because of the iterative nature of the solver which only requires
-					// that the accumulated impulse is clamped and not the incremental impulse) we change the impulse variable (x_i).
-					//
-					// Substitute:
-					// 
-					// x = x' - a
-					// 
-					// Plug into above equation:
-					//
-					// vn = A * x + b
-					//    = A * (x' - a) + b
-					//    = A * x' + b - A * a
-					//    = A * x' + b'
-					// b' = b - A * a;
+        public void SolveVelocityConstraints()
+        {
+            for (int i = 0; i < _count; ++i)
+            {
+                ContactVelocityConstraint vc = _velocityConstraints[i];
 
-					ContactConstraintPoint cp1 = c.Points[0];
-					ContactConstraintPoint cp2 = c.Points[1];
+                int indexA = vc.indexA;
+                int indexB = vc.indexB;
+                float mA = vc.invMassA;
+                float iA = vc.invIA;
+                float mB = vc.invMassB;
+                float iB = vc.invIB;
+                int pointCount = vc.pointCount;
 
-					Vec2 a = new Vec2(cp1.NormalImpulse, cp2.NormalImpulse);
-					Box2DXDebug.Assert(a.X >= 0.0f && a.Y >= 0.0f);
+                Vector2 vA = _velocities[indexA].v;
+                float wA = _velocities[indexA].w;
+                Vector2 vB = _velocities[indexB].v;
+                float wB = _velocities[indexB].w;
 
-					// Relative velocity at contact
-					Vec2 dv1 = v2 + Vec2.Cross(w2, cp1.R2) - v1 - Vec2.Cross(w1, cp1.R1);
-					Vec2 dv2 = v2 + Vec2.Cross(w2, cp2.R2) - v1 - Vec2.Cross(w1, cp2.R1);
+                Vector2 normal = vc.normal;
+                Vector2 tangent = MathUtils.Cross(normal, 1.0f);
+                float friction = vc.friction;
+
+                Debug.Assert(pointCount == 1 || pointCount == 2);
+
+                // Solve tangent constraints first because non-penetration is more important
+                // than friction.
+                for (int j = 0; j < pointCount; ++j)
+                {
+                    VelocityConstraintPoint vcp = vc.points[j];
+
+                    // Relative velocity at contact
+                    Vector2 dv = vB + MathUtils.Cross(wB, vcp.rB) - vA - MathUtils.Cross(wA, vcp.rA);
+
+                    // Compute tangent force
+                    float vt = Vector2.Dot(dv, tangent) - vc.tangentSpeed;
+                    float lambda = vcp.tangentMass * (-vt);
+
+                    // b2Clamp the accumulated force
+                    float maxFriction = friction * vcp.normalImpulse;
+                    float newImpulse = MathUtils.Clamp(vcp.tangentImpulse + lambda, -maxFriction, maxFriction);
+                    lambda = newImpulse - vcp.tangentImpulse;
+                    vcp.tangentImpulse = newImpulse;
+
+                    // Apply contact impulse
+                    Vector2 P = lambda * tangent;
+
+                    vA -= mA * P;
+                    wA -= iA * MathUtils.Cross(vcp.rA, P);
+
+                    vB += mB * P;
+                    wB += iB * MathUtils.Cross(vcp.rB, P);
+                }
+
+                // Solve normal constraints
+                if (vc.pointCount == 1)
+                {
+                    VelocityConstraintPoint vcp = vc.points[0];
+
+                    // Relative velocity at contact
+                    Vector2 dv = vB + MathUtils.Cross(wB, vcp.rB) - vA - MathUtils.Cross(wA, vcp.rA);
+
+                    // Compute normal impulse
+                    float vn = Vector2.Dot(dv, normal);
+                    float lambda = -vcp.normalMass * (vn - vcp.velocityBias);
+
+                    // b2Clamp the accumulated impulse
+                    float newImpulse = Math.Max(vcp.normalImpulse + lambda, 0.0f);
+                    lambda = newImpulse - vcp.normalImpulse;
+                    vcp.normalImpulse = newImpulse;
+
+                    // Apply contact impulse
+                    Vector2 P = lambda * normal;
+                    vA -= mA * P;
+                    wA -= iA * MathUtils.Cross(vcp.rA, P);
+
+                    vB += mB * P;
+                    wB += iB * MathUtils.Cross(vcp.rB, P);
+                }
+                else
+                {
+                    // Block solver developed in collaboration with Dirk Gregorius (back in 01/07 on Box2D_Lite).
+                    // Build the mini LCP for this contact patch
+                    //
+                    // vn = A * x + b, vn >= 0, , vn >= 0, x >= 0 and vn_i * x_i = 0 with i = 1..2
+                    //
+                    // A = J * W * JT and J = ( -n, -r1 x n, n, r2 x n )
+                    // b = vn0 - velocityBias
+                    //
+                    // The system is solved using the "Total enumeration method" (s. Murty). The complementary constraint vn_i * x_i
+                    // implies that we must have in any solution either vn_i = 0 or x_i = 0. So for the 2D contact problem the cases
+                    // vn1 = 0 and vn2 = 0, x1 = 0 and x2 = 0, x1 = 0 and vn2 = 0, x2 = 0 and vn1 = 0 need to be tested. The first valid
+                    // solution that satisfies the problem is chosen.
+                    // 
+                    // In order to account of the accumulated impulse 'a' (because of the iterative nature of the solver which only requires
+                    // that the accumulated impulse is clamped and not the incremental impulse) we change the impulse variable (x_i).
+                    //
+                    // Substitute:
+                    // 
+                    // x = a + d
+                    // 
+                    // a := old total impulse
+                    // x := new total impulse
+                    // d := incremental impulse 
+                    //
+                    // For the current iteration we extend the formula for the incremental impulse
+                    // to compute the new total impulse:
+                    //
+                    // vn = A * d + b
+                    //    = A * (x - a) + b
+                    //    = A * x + b - A * a
+                    //    = A * x + b'
+                    // b' = b - A * a;
+
+                    VelocityConstraintPoint cp1 = vc.points[0];
+                    VelocityConstraintPoint cp2 = vc.points[1];
+
+                    Vector2 a = new Vector2(cp1.normalImpulse, cp2.normalImpulse);
+                    Debug.Assert(a.X >= 0.0f && a.Y >= 0.0f);
+
+                    // Relative velocity at contact
+                    Vector2 dv1 = vB + MathUtils.Cross(wB, cp1.rB) - vA - MathUtils.Cross(wA, cp1.rA);
+                    Vector2 dv2 = vB + MathUtils.Cross(wB, cp2.rB) - vA - MathUtils.Cross(wA, cp2.rA);
+
+                    // Compute normal velocity
+                    float vn1 = Vector2.Dot(dv1, normal);
+                    float vn2 = Vector2.Dot(dv2, normal);
+
+                    Vector2 b = new Vector2();
+                    b.X = vn1 - cp1.velocityBias;
+                    b.Y = vn2 - cp2.velocityBias;
+
+                    // Compute b'
+                    b -= MathUtils.Mul(ref vc.K, a);
+
+                    const float k_errorTol = 1e-3f;
+                    //B2_NOT_USED(k_errorTol);
+
+                    for (; ; )
+                    {
+                        //
+                        // Case 1: vn = 0
+                        //
+                        // 0 = A * x + b'
+                        //
+                        // Solve for x:
+                        //
+                        // x = - inv(A) * b'
+                        //
+                        Vector2 x = -MathUtils.Mul(ref vc.normalMass, b);
+
+                        if (x.X >= 0.0f && x.Y >= 0.0f)
+                        {
+                            // Get the incremental impulse
+                            Vector2 d = x - a;
+
+                            // Apply incremental impulse
+                            Vector2 P1 = d.X * normal;
+                            Vector2 P2 = d.Y * normal;
+                            vA -= mA * (P1 + P2);
+                            wA -= iA * (MathUtils.Cross(cp1.rA, P1) + MathUtils.Cross(cp2.rA, P2));
+
+                            vB += mB * (P1 + P2);
+                            wB += iB * (MathUtils.Cross(cp1.rB, P1) + MathUtils.Cross(cp2.rB, P2));
+
+                            // Accumulate
+                            cp1.normalImpulse = x.X;
+                            cp2.normalImpulse = x.Y;
+
+#if B2_DEBUG_SOLVER 
+					// Postconditions
+					dv1 = vB + MathUtils.Cross(wB, cp1.rB) - vA - MathUtils.Cross(wA, cp1.rA);
+					dv2 = vB + MathUtils.Cross(wB, cp2.rB) - vA - MathUtils.Cross(wA, cp2.rA);
 
 					// Compute normal velocity
-					float vn1 = Vec2.Dot(dv1, normal);
-					float vn2 = Vec2.Dot(dv2, normal);
+					vn1 = Vector2.Dot(dv1, normal);
+					vn2 = Vector2.Dot(dv2, normal);
 
-					Vec2 b;
-					b.X = vn1 - cp1.VelocityBias;
-					b.Y = vn2 - cp2.VelocityBias;
-					b -= Common.Math.Mul(c.K, a);
+					b2Assert(b2Abs(vn1 - cp1.velocityBias) < k_errorTol);
+					b2Assert(b2Abs(vn2 - cp2.velocityBias) < k_errorTol);
+#endif
+                            break;
+                        }
 
-					const float k_errorTol = 1e-3f;
-					for (; ; )
-					{
-						//
-						// Case 1: vn = 0
-						//
-						// 0 = A * x' + b'
-						//
-						// Solve for x':
-						//
-						// x' = - inv(A) * b'
-						//
-						Vec2 x = -Common.Math.Mul(c.NormalMass, b);
+                        //
+                        // Case 2: vn1 = 0 and x2 = 0
+                        //
+                        //   0 = a11 * x1 + a12 * 0 + b1' 
+                        // vn2 = a21 * x1 + a22 * 0 + b2'
+                        //
+                        x.X = -cp1.normalMass * b.X;
+                        x.Y = 0.0f;
+                        vn1 = 0.0f;
+                        vn2 = vc.K.ex.Y * x.X + b.Y;
 
-						if (x.X >= 0.0f && x.Y >= 0.0f)
-						{
-							// Resubstitute for the incremental impulse
-							Vec2 d = x - a;
+                        if (x.X >= 0.0f && vn2 >= 0.0f)
+                        {
+                            // Get the incremental impulse
+                            Vector2 d = x - a;
 
-							// Apply incremental impulse
-							Vec2 P1 = d.X * normal;
-							Vec2 P2 = d.Y * normal;
-							v1 -= invMass1 * (P1 + P2);
-							w1 -= invI1 * (Vec2.Cross(cp1.R1, P1) + Vec2.Cross(cp2.R1, P2));
+                            // Apply incremental impulse
+                            Vector2 P1 = d.X * normal;
+                            Vector2 P2 = d.Y * normal;
+                            vA -= mA * (P1 + P2);
+                            wA -= iA * (MathUtils.Cross(cp1.rA, P1) + MathUtils.Cross(cp2.rA, P2));
 
-							v2 += invMass2 * (P1 + P2);
-							w2 += invI2 * (Vec2.Cross(cp1.R2, P1) + Vec2.Cross(cp2.R2, P2));
+                            vB += mB * (P1 + P2);
+                            wB += iB * (MathUtils.Cross(cp1.rB, P1) + MathUtils.Cross(cp2.rB, P2));
 
-							// Accumulate
-							cp1.NormalImpulse = x.X;
-							cp2.NormalImpulse = x.Y;
+                            // Accumulate
+                            cp1.normalImpulse = x.X;
+                            cp2.normalImpulse = x.Y;
 
 #if B2_DEBUG_SOLVER
-							// Postconditions
-							dv1 = v2 + Vector2.Cross(w2, cp1.R2) - v1 - Vector2.Cross(w1, cp1.R1);
-							dv2 = v2 + Vector2.Cross(w2, cp2.R2) - v1 - Vector2.Cross(w1, cp2.R1);
+					// Postconditions
+					dv1 = vB + MathUtils.Cross(wB, cp1.rB) - vA - MathUtils.Cross(wA, cp1.rA);
 
-							// Compute normal velocity
-							vn1 = Vector2.Dot(dv1, normal);
-							vn2 = Vector2.Dot(dv2, normal);
+					// Compute normal velocity
+					vn1 = Vector2.Dot(dv1, normal);
 
-							Box2DXDebug.Assert(Common.Math.Abs(vn1 - cp1.VelocityBias) < k_errorTol);
-							Box2DXDebug.Assert(Common.Math.Abs(vn2 - cp2.VelocityBias) < k_errorTol);
+					b2Assert(b2Abs(vn1 - cp1.velocityBias) < k_errorTol);
 #endif
-							break;
-						}
+                            break;
+                        }
 
-						//
-						// Case 2: vn1 = 0 and x2 = 0
-						//
-						//   0 = a11 * x1' + a12 * 0 + b1' 
-						// vn2 = a21 * x1' + a22 * 0 + b2'
-						//
-						x.X = -cp1.NormalMass * b.X;
-						x.Y = 0.0f;
-						vn1 = 0.0f;
-						vn2 = c.K.Col1.Y * x.X + b.Y;
 
-						if (x.X >= 0.0f && vn2 >= 0.0f)
-						{
-							// Resubstitute for the incremental impulse
-							Vec2 d = x - a;
+                        //
+                        // Case 3: vn2 = 0 and x1 = 0
+                        //
+                        // vn1 = a11 * 0 + a12 * x2 + b1' 
+                        //   0 = a21 * 0 + a22 * x2 + b2'
+                        //
+                        x.X = 0.0f;
+                        x.Y = -cp2.normalMass * b.Y;
+                        vn1 = vc.K.ey.X * x.Y + b.X;
+                        vn2 = 0.0f;
 
-							// Apply incremental impulse
-							Vec2 P1 = d.X * normal;
-							Vec2 P2 = d.Y * normal;
-							v1 -= invMass1 * (P1 + P2);
-							w1 -= invI1 * (Vec2.Cross(cp1.R1, P1) + Vec2.Cross(cp2.R1, P2));
+                        if (x.Y >= 0.0f && vn1 >= 0.0f)
+                        {
+                            // Resubstitute for the incremental impulse
+                            Vector2 d = x - a;
 
-							v2 += invMass2 * (P1 + P2);
-							w2 += invI2 * (Vec2.Cross(cp1.R2, P1) + Vec2.Cross(cp2.R2, P2));
+                            // Apply incremental impulse
+                            Vector2 P1 = d.X * normal;
+                            Vector2 P2 = d.Y * normal;
+                            vA -= mA * (P1 + P2);
+                            wA -= iA * (MathUtils.Cross(cp1.rA, P1) + MathUtils.Cross(cp2.rA, P2));
 
-							// Accumulate
-							cp1.NormalImpulse = x.X;
-							cp2.NormalImpulse = x.Y;
+                            vB += mB * (P1 + P2);
+                            wB += iB * (MathUtils.Cross(cp1.rB, P1) + MathUtils.Cross(cp2.rB, P2));
+
+                            // Accumulate
+                            cp1.normalImpulse = x.X;
+                            cp2.normalImpulse = x.Y;
 
 #if B2_DEBUG_SOLVER
-							// Postconditions
-							dv1 = v2 + Vector2.Cross(w2, cp1.R2) - v1 - Vector2.Cross(w1, cp1.R1);
+					// Postconditions
+					dv2 = vB + MathUtils.Cross(wB, cp2.rB) - vA - MathUtils.Cross(wA, cp2.rA);
 
-							// Compute normal velocity
-							vn1 = Vector2.Dot(dv1, normal);
+					// Compute normal velocity
+					vn2 = Vector2.Dot(dv2, normal);
 
-							Box2DXDebug.Assert(Common.Math.Abs(vn1 - cp1.VelocityBias) < k_errorTol);
+					b2Assert(b2Abs(vn2 - cp2.velocityBias) < k_errorTol);
 #endif
-							break;
-						}
+                            break;
+                        }
 
+                        //
+                        // Case 4: x1 = 0 and x2 = 0
+                        // 
+                        // vn1 = b1
+                        // vn2 = b2;
+                        x.X = 0.0f;
+                        x.Y = 0.0f;
+                        vn1 = b.X;
+                        vn2 = b.Y;
 
-						//
-						// Case 3: w2 = 0 and x1 = 0
-						//
-						// vn1 = a11 * 0 + a12 * x2' + b1' 
-						//   0 = a21 * 0 + a22 * x2' + b2'
-						//
-						x.X = 0.0f;
-						x.Y = -cp2.NormalMass * b.Y;
-						vn1 = c.K.Col2.X * x.Y + b.X;
-						vn2 = 0.0f;
+                        if (vn1 >= 0.0f && vn2 >= 0.0f)
+                        {
+                            // Resubstitute for the incremental impulse
+                            Vector2 d = x - a;
 
-						if (x.Y >= 0.0f && vn1 >= 0.0f)
-						{
-							// Resubstitute for the incremental impulse
-							Vec2 d = x - a;
+                            // Apply incremental impulse
+                            Vector2 P1 = d.X * normal;
+                            Vector2 P2 = d.Y * normal;
+                            vA -= mA * (P1 + P2);
+                            wA -= iA * (MathUtils.Cross(cp1.rA, P1) + MathUtils.Cross(cp2.rA, P2));
 
-							// Apply incremental impulse
-							Vec2 P1 = d.X * normal;
-							Vec2 P2 = d.Y * normal;
-							v1 -= invMass1 * (P1 + P2);
-							w1 -= invI1 * (Vec2.Cross(cp1.R1, P1) + Vec2.Cross(cp2.R1, P2));
+                            vB += mB * (P1 + P2);
+                            wB += iB * (MathUtils.Cross(cp1.rB, P1) + MathUtils.Cross(cp2.rB, P2));
 
-							v2 += invMass2 * (P1 + P2);
-							w2 += invI2 * (Vec2.Cross(cp1.R2, P1) + Vec2.Cross(cp2.R2, P2));
+                            // Accumulate
+                            cp1.normalImpulse = x.X;
+                            cp2.normalImpulse = x.Y;
 
-							// Accumulate
-							cp1.NormalImpulse = x.X;
-							cp2.NormalImpulse = x.Y;
+                            break;
+                        }
 
-#if B2_DEBUG_SOLVER
-							// Postconditions
-							dv2 = v2 + Vector2.Cross(w2, cp2.R2) - v1 - Vector2.Cross(w1, cp2.R1);
+                        // No solution, give up. This is hit sometimes, but it doesn't seem to matter.
+                        break;
+                    }
+                }
 
-							// Compute normal velocity
-							vn2 = Vector2.Dot(dv2, normal);
+                _velocities[indexA].v = vA;
+                _velocities[indexA].w = wA;
+                _velocities[indexB].v = vB;
+                _velocities[indexB].w = wB;
+            }
+        }
 
-							Box2DXDebug.Assert(Common.Math.Abs(vn2 - cp2.VelocityBias) < k_errorTol);
-#endif
-							break;
-						}
+        public void StoreImpulses()
+        {
+            for (int i = 0; i < _count; ++i)
+            {
+                ContactVelocityConstraint vc = _velocityConstraints[i];
+                Manifold manifold = _contacts[vc.contactIndex].Manifold;
 
-						//
-						// Case 4: x1 = 0 and x2 = 0
-						// 
-						// vn1 = b1
-						// vn2 = b2;
-						x.X = 0.0f;
-						x.Y = 0.0f;
-						vn1 = b.X;
-						vn2 = b.Y;
+                for (int j = 0; j < vc.pointCount; ++j)
+                {
+                    ManifoldPoint point = manifold.Points[j];
+                    point.NormalImpulse = vc.points[j].normalImpulse;
+                    point.TangentImpulse = vc.points[j].tangentImpulse;
+                    manifold.Points[j] = point;
+                }
 
-						if (vn1 >= 0.0f && vn2 >= 0.0f)
-						{
-							// Resubstitute for the incremental impulse
-							Vec2 d = x - a;
+                _contacts[vc.contactIndex].Manifold = manifold;
+            }
+        }
 
-							// Apply incremental impulse
-							Vec2 P1 = d.X * normal;
-							Vec2 P2 = d.Y * normal;
-							v1 -= invMass1 * (P1 + P2);
-							w1 -= invI1 * (Vec2.Cross(cp1.R1, P1) + Vec2.Cross(cp2.R1, P2));
+        public bool SolvePositionConstraints()
+        {
+            float minSeparation = 0.0f;
 
-							v2 += invMass2 * (P1 + P2);
-							w2 += invI2 * (Vec2.Cross(cp1.R2, P1) + Vec2.Cross(cp2.R2, P2));
+            for (int i = 0; i < _count; ++i)
+            {
+                ContactPositionConstraint pc = _positionConstraints[i];
 
-							// Accumulate
-							cp1.NormalImpulse = x.X;
-							cp2.NormalImpulse = x.Y;
+                int indexA = pc.indexA;
+                int indexB = pc.indexB;
+                Vector2 localCenterA = pc.localCenterA;
+                float mA = pc.invMassA;
+                float iA = pc.invIA;
+                Vector2 localCenterB = pc.localCenterB;
+                float mB = pc.invMassB;
+                float iB = pc.invIB;
+                int pointCount = pc.pointCount;
 
-							break;
-						}
+                Vector2 cA = _positions[indexA].c;
+                float aA = _positions[indexA].a;
 
-						// No solution, give up. This is hit sometimes, but it doesn't seem to matter.
-						break;
-					}
-				}
+                Vector2 cB = _positions[indexB].c;
+                float aB = _positions[indexB].a;
 
-				// Solve tangent constraints
-				for (int j = 0; j < c.PointCount; ++j)
-				{
-					ContactConstraintPoint ccp = c.Points[j];
+                // Solve normal constraints
+                for (int j = 0; j < pointCount; ++j)
+                {
+                    Transform xfA = new Transform();
+                    Transform xfB = new Transform();
+                    xfA.q.Set(aA);
+                    xfB.q.Set(aB);
+                    xfA.p = cA - MathUtils.Mul(xfA.q, localCenterA);
+                    xfB.p = cB - MathUtils.Mul(xfB.q, localCenterB);
 
-					// Relative velocity at contact
-					Vec2 dv = v2 + Vec2.Cross(w2, ccp.R2) - v1 - Vec2.Cross(w1, ccp.R1);
+                    Vector2 normal;
+                    Vector2 point;
+                    float separation;
 
-					// Compute tangent force
-					float vt = Vec2.Dot(dv, tangent);
-					float lambda = ccp.TangentMass * (-vt);
+                    PositionSolverManifold.Initialize(pc, xfA, xfB, j, out normal, out point, out separation);
 
-					// Clamp the accumulated force
-					float maxFriction = friction * ccp.NormalImpulse;
-					float newImpulse = Common.Math.Clamp(ccp.TangentImpulse + lambda, -maxFriction, maxFriction);
-					lambda = newImpulse - ccp.TangentImpulse;
+                    Vector2 rA = point - cA;
+                    Vector2 rB = point - cB;
 
-					// Apply contact impulse
-					Vec2 P = lambda * tangent;
+                    // Track max constraint error.
+                    minSeparation = Math.Min(minSeparation, separation);
 
-					v1 -= invMass1 * P;
-					w1 -= invI1 * Vec2.Cross(ccp.R1, P);
+                    // Prevent large corrections and allow slop.
+                    float C = MathUtils.Clamp(Settings.Baumgarte * (separation + Settings.LinearSlop), -Settings.MaxLinearCorrection, 0.0f);
 
-					v2 += invMass2 * P;
-					w2 += invI2 * Vec2.Cross(ccp.R2, P);
+                    // Compute the effective mass.
+                    float rnA = MathUtils.Cross(rA, normal);
+                    float rnB = MathUtils.Cross(rB, normal);
+                    float K = mA + mB + iA * rnA * rnA + iB * rnB * rnB;
 
-					ccp.TangentImpulse = newImpulse;
-				}
+                    // Compute normal impulse
+                    float impulse = K > 0.0f ? -C / K : 0.0f;
 
-				b1._linearVelocity = v1;
-				b1._angularVelocity = w1;
-				b2._linearVelocity = v2;
-				b2._angularVelocity = w2;
-			}
-		}
+                    Vector2 P = impulse * normal;
 
-		public void FinalizeVelocityConstraints()
-		{
-			for (int i = 0; i < _constraintCount; ++i)
-			{
-				ContactConstraint c = _constraints[i];
-				Manifold m = c.Manifold;
+                    cA -= mA * P;
+                    aA -= iA * MathUtils.Cross(rA, P);
 
-				for (int j = 0; j < c.PointCount; ++j)
-				{
-					m.Points[j].NormalImpulse = c.Points[j].NormalImpulse;
-					m.Points[j].TangentImpulse = c.Points[j].TangentImpulse;
-				}
-			}
-		}
+                    cB += mB * P;
+                    aB += iB * MathUtils.Cross(rB, P);
+                }
 
-#if FIRST
-		public bool SolvePositionConstraints(float baumgarte)
-		{
-			float minSeparation = 0.0f;
+                _positions[indexA].c = cA;
+                _positions[indexA].a = aA;
 
-			for (int i = 0; i < _constraintCount; ++i)
-			{
-				ContactConstraint c = _constraints[i];
-				Body b1 = c.Body1;
-				Body b2 = c.Body2;
-				float invMass1 = b1._mass * b1._invMass;
-				float invI1 = b1._mass * b1._invI;
-				float invMass2 = b2._mass * b2._invMass;
-				float invI2 = b2._mass * b2._invI;
+                _positions[indexB].c = cB;
+                _positions[indexB].a = aB;
+            }
 
-				Vec2 normal = c.Normal;
+            // We can't expect minSpeparation >= -b2_linearSlop because we don't
+            // push the separation above -b2_linearSlop.
+            return minSeparation >= -3.0f * Settings.LinearSlop;
+        }
 
-				// Solver normal constraints
-				for (int j = 0; j < c.PointCount; ++j)
-				{
-					ContactConstraintPoint ccp = c.Points[j];
+        // Sequential position solver for position constraints.
+        public bool SolveTOIPositionConstraints(int toiIndexA, int toiIndexB)
+        {
+            float minSeparation = 0.0f;
 
-					Vec2 r1 = Common.Math.Mul(b1.GetXForm().R, ccp.LocalAnchor1 - b1.GetLocalCenter());
-					Vec2 r2 = Common.Math.Mul(b2.GetXForm().R, ccp.LocalAnchor2 - b2.GetLocalCenter());
+            for (int i = 0; i < _count; ++i)
+            {
+                ContactPositionConstraint pc = _positionConstraints[i];
 
-					Vec2 p1 = b1._sweep.C + r1;
-					Vec2 p2 = b2._sweep.C + r2;
-					Vec2 dp = p2 - p1;
+                int indexA = pc.indexA;
+                int indexB = pc.indexB;
+                Vector2 localCenterA = pc.localCenterA;
+                Vector2 localCenterB = pc.localCenterB;
+                int pointCount = pc.pointCount;
 
-					// Approximate the current separation.
-					float separation = Vec2.Dot(dp, normal) + ccp.Separation;
+                float mA = 0.0f;
+                float iA = 0.0f;
+                if (indexA == toiIndexA || indexA == toiIndexB)
+                {
+                    mA = pc.invMassA;
+                    iA = pc.invIA;
+                }
 
-					// Track max constraint error.
-					minSeparation = Common.Math.Min(minSeparation, separation);
+                float mB = 0.0f;
+                float iB = 0.0f;
+                if (indexB == toiIndexA || indexB == toiIndexB)
+                {
+                    mB = pc.invMassB;
+                    iB = pc.invIB;
+                }
 
-					// Prevent large corrections and allow slop.
-					float C = baumgarte * Common.Math.Clamp(separation + Settings.LinearSlop, -Settings.MaxLinearCorrection, 0.0f);
+                Vector2 cA = _positions[indexA].c;
+                float aA = _positions[indexA].a;
 
-					// Compute normal impulse
-					float impulse = -ccp.EqualizedMass * C;
+                Vector2 cB = _positions[indexB].c;
+                float aB = _positions[indexB].a;
 
-					Vec2 P = impulse * normal;
+                // Solve normal constraints
+                for (int j = 0; j < pointCount; ++j)
+                {
+                    Transform xfA = new Transform();
+                    Transform xfB = new Transform();
+                    xfA.q.Set(aA);
+                    xfB.q.Set(aB);
+                    xfA.p = cA - MathUtils.Mul(xfA.q, localCenterA);
+                    xfB.p = cB - MathUtils.Mul(xfB.q, localCenterB);
 
-					b1._sweep.C -= invMass1 * P;
-					b1._sweep.A -= invI1 * Vec2.Cross(r1, P);
-					b1.SynchronizeTransform();
+                    Vector2 normal;
+                    Vector2 point;
+                    float separation;
 
-					b2._sweep.C += invMass2 * P;
-					b2._sweep.A += invI2 * Vec2.Cross(r2, P);
-					b2.SynchronizeTransform();
-				}
-			}
+                    PositionSolverManifold.Initialize(pc, xfA, xfB, j, out normal, out point, out separation);
 
-			// We can't expect minSpeparation >= -Settings.LinearSlop because we don't
-			// push the separation above -Settings.LinearSlop.
-			return minSeparation >= -1.5f * Settings.LinearSlop;
-		}
-	}
-#else
-#endif
+                    Vector2 rA = point - cA;
+                    Vector2 rB = point - cB;
+
+                    // Track max constraint error.
+                    minSeparation = Math.Min(minSeparation, separation);
+
+                    // Prevent large corrections and allow slop.
+                    float C = MathUtils.Clamp(Settings.Baumgarte * (separation + Settings.LinearSlop), -Settings.MaxLinearCorrection, 0.0f);
+
+                    // Compute the effective mass.
+                    float rnA = MathUtils.Cross(rA, normal);
+                    float rnB = MathUtils.Cross(rB, normal);
+                    float K = mA + mB + iA * rnA * rnA + iB * rnB * rnB;
+
+                    // Compute normal impulse
+                    float impulse = K > 0.0f ? -C / K : 0.0f;
+
+                    Vector2 P = impulse * normal;
+
+                    cA -= mA * P;
+                    aA -= iA * MathUtils.Cross(rA, P);
+
+                    cB += mB * P;
+                    aB += iB * MathUtils.Cross(rB, P);
+                }
+
+                _positions[indexA].c = cA;
+                _positions[indexA].a = aA;
+
+                _positions[indexB].c = cB;
+                _positions[indexB].a = aB;
+            }
+
+            // We can't expect minSpeparation >= -b2_linearSlop because we don't
+            // push the separation above -b2_linearSlop.
+            return minSeparation >= -1.5f * Settings.LinearSlop;
+        }
+
+        public static class WorldManifold
+        {
+            /// <summary>
+            /// Evaluate the manifold with supplied transforms. This assumes
+            /// modest motion from the original state. This does not change the
+            /// point count, impulses, etc. The radii must come from the Shapes
+            /// that generated the manifold.
+            /// </summary>
+            /// <param name="manifold">The manifold.</param>
+            /// <param name="xfA">The transform for A.</param>
+            /// <param name="radiusA">The radius for A.</param>
+            /// <param name="xfB">The transform for B.</param>
+            /// <param name="radiusB">The radius for B.</param>
+            /// <param name="normal">World vector pointing from A to B</param>
+            /// <param name="points">Torld contact point (point of intersection).</param>
+            public static void Initialize(ref Manifold manifold, ref Transform xfA, float radiusA, ref Transform xfB, float radiusB, out Vector2 normal, out FixedArray2<Vector2> points)
+            {
+                normal = Vector2.Zero;
+                points = new FixedArray2<Vector2>();
+
+                if (manifold.PointCount == 0)
+                {
+                    return;
+                }
+
+                switch (manifold.Type)
+                {
+                    case ManifoldType.Circles:
+                        {
+                            normal = new Vector2(1.0f, 0.0f);
+                            Vector2 pointA = MathUtils.Mul(ref xfA, manifold.LocalPoint);
+                            Vector2 pointB = MathUtils.Mul(ref xfB, manifold.Points[0].LocalPoint);
+                            if (Vector2.DistanceSquared(pointA, pointB) > Settings.Epsilon * Settings.Epsilon)
+                            {
+                                normal = pointB - pointA;
+                                normal.Normalize();
+                            }
+
+                            Vector2 cA = pointA + radiusA * normal;
+                            Vector2 cB = pointB - radiusB * normal;
+                            points[0] = 0.5f * (cA + cB);
+                        }
+                        break;
+
+                    case ManifoldType.FaceA:
+                        {
+                            normal = MathUtils.Mul(xfA.q, manifold.LocalNormal);
+                            Vector2 planePoint = MathUtils.Mul(ref xfA, manifold.LocalPoint);
+
+                            for (int i = 0; i < manifold.PointCount; ++i)
+                            {
+                                Vector2 clipPoint = MathUtils.Mul(ref xfB, manifold.Points[i].LocalPoint);
+                                Vector2 cA = clipPoint + (radiusA - Vector2.Dot(clipPoint - planePoint, normal)) * normal;
+                                Vector2 cB = clipPoint - radiusB * normal;
+                                points[i] = 0.5f * (cA + cB);
+                            }
+                        }
+                        break;
+
+                    case ManifoldType.FaceB:
+                        {
+                            normal = MathUtils.Mul(xfB.q, manifold.LocalNormal);
+                            Vector2 planePoint = MathUtils.Mul(ref xfB, manifold.LocalPoint);
+
+                            for (int i = 0; i < manifold.PointCount; ++i)
+                            {
+                                Vector2 clipPoint = MathUtils.Mul(ref xfA, manifold.Points[i].LocalPoint);
+                                Vector2 cB = clipPoint + (radiusB - Vector2.Dot(clipPoint - planePoint, normal)) * normal;
+                                Vector2 cA = clipPoint - radiusA * normal;
+                                points[i] = 0.5f * (cA + cB);
+                            }
+
+                            // Ensure normal points from A to B.
+                            normal = -normal;
+                        }
+                        break;
+                }
+            }
+        }
+
+        private static class PositionSolverManifold
+        {
+            public static void Initialize(ContactPositionConstraint pc, Transform xfA, Transform xfB, int index, out Vector2 normal, out Vector2 point, out float separation)
+            {
+                Debug.Assert(pc.pointCount > 0);
+
+                switch (pc.type)
+                {
+                    case ManifoldType.Circles:
+                        {
+                            Vector2 pointA = MathUtils.Mul(ref xfA, pc.localPoint);
+                            Vector2 pointB = MathUtils.Mul(ref xfB, pc.localPoints[0]);
+                            normal = pointB - pointA;
+
+                            //FPE: Fix to handle zero normalization
+                            if (normal != Vector2.Zero)
+                                normal.Normalize();
+
+                            point = 0.5f * (pointA + pointB);
+                            separation = Vector2.Dot(pointB - pointA, normal) - pc.radiusA - pc.radiusB;
+                        }
+                        break;
+
+                    case ManifoldType.FaceA:
+                        {
+                            normal = MathUtils.Mul(xfA.q, pc.localNormal);
+                            Vector2 planePoint = MathUtils.Mul(ref xfA, pc.localPoint);
+
+                            Vector2 clipPoint = MathUtils.Mul(ref xfB, pc.localPoints[index]);
+                            separation = Vector2.Dot(clipPoint - planePoint, normal) - pc.radiusA - pc.radiusB;
+                            point = clipPoint;
+                        }
+                        break;
+
+                    case ManifoldType.FaceB:
+                        {
+                            normal = MathUtils.Mul(xfB.q, pc.localNormal);
+                            Vector2 planePoint = MathUtils.Mul(ref xfB, pc.localPoint);
+
+                            Vector2 clipPoint = MathUtils.Mul(ref xfA, pc.localPoints[index]);
+                            separation = Vector2.Dot(clipPoint - planePoint, normal) - pc.radiusA - pc.radiusB;
+                            point = clipPoint;
+
+                            // Ensure normal points from A to B
+                            normal = -normal;
+                        }
+                        break;
+                    default:
+                        normal = Vector2.Zero;
+                        point = Vector2.Zero;
+                        separation = 0;
+                        break;
+
+                }
+            }
+        }
+    }
 }

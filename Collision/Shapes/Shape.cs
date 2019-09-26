@@ -1,416 +1,255 @@
 ﻿/*
-  Box2DX Copyright (c) 2008 Ihar Kalasouski http://code.google.com/p/box2dx
-  Box2D original C++ version Copyright (c) 2006-2007 Erin Catto http://www.gphysics.com
-
-  This software is provided 'as-is', without any express or implied
-  warranty.  In no event will the authors be held liable for any damages
-  arising from the use of this software.
-
-  Permission is granted to anyone to use this software for any purpose,
-  including commercial applications, and to alter it and redistribute it
-  freely, subject to the following restrictions:
-
-  1. The origin of this software must not be misrepresented; you must not
-     claim that you wrote the original software. If you use this software
-     in a product, an acknowledgment in the product documentation would be
-     appreciated but is not required.
-  2. Altered source versions must be plainly marked as such, and must not be
-     misrepresented as being the original software.
-  3. This notice may not be removed or altered from any source distribution.
+* Farseer Physics Engine:
+* Copyright (c) 2012 Ian Qvist
+* 
+* Original source Box2D:
+* Copyright (c) 2006-2011 Erin Catto http://www.box2d.org 
+* 
+* This software is provided 'as-is', without any express or implied 
+* warranty.  In no event will the authors be held liable for any damages 
+* arising from the use of this software. 
+* Permission is granted to anyone to use this software for any purpose, 
+* including commercial applications, and to alter it and redistribute it 
+* freely, subject to the following restrictions: 
+* 1. The origin of this software must not be misrepresented; you must not 
+* claim that you wrote the original software. If you use this software 
+* in a product, an acknowledgment in the product documentation would be 
+* appreciated but is not required. 
+* 2. Altered source versions must be plainly marked as such, and must not be 
+* misrepresented as being the original software. 
+* 3. This notice may not be removed or altered from any source distribution. 
 */
 
 using System;
-using System.Collections.Generic;
-using System.Text;
+using System.Diagnostics;
+using FarseerPhysics.Common;
+using Microsoft.Xna.Framework;
 
-using Box2DX.Common;
-using Box2DX.Dynamics;
-
-namespace Box2DX.Collision
+namespace FarseerPhysics.Collision.Shapes
 {
-	/// <summary>
-	/// This holds the mass data computed for a shape.
-	/// </summary>
-	public struct MassData
-	{
-		/// <summary>
-		/// The mass of the shape, usually in kilograms.
-		/// </summary>
-		public float Mass;
+    /// <summary>
+    /// This holds the mass data computed for a shape.
+    /// </summary>
+    public struct MassData : IEquatable<MassData>
+    {
+        /// <summary>
+        /// The area of the shape
+        /// </summary>
+        public float Area { get; internal set; }
 
-		/// <summary>
-		/// The position of the shape's centroid relative to the shape's origin.
-		/// </summary>
-		public Vec2 Center;
+        /// <summary>
+        /// The position of the shape's centroid relative to the shape's origin.
+        /// </summary>
+        public Vector2 Centroid { get; internal set; }
 
-		/// <summary>
-		/// The rotational inertia of the shape.
-		/// </summary>
-		public float I;
-	}
+        /// <summary>
+        /// The rotational inertia of the shape about the local origin.
+        /// </summary>
+        public float Inertia { get; internal set; }
 
-	/// <summary>
-	/// This holds contact filtering data.
-	/// </summary>
-	public struct FilterData
-	{
-		/// <summary>
-		/// The collision category bits. Normally you would just set one bit.
-		/// </summary>
-		public ushort CategoryBits;
+        /// <summary>
+        /// The mass of the shape, usually in kilograms.
+        /// </summary>
+        public float Mass { get; internal set; }
 
-		/// <summary>
-		/// The collision mask bits. This states the categories that this
-		/// shape would accept for collision.
-		/// </summary>
-		public ushort MaskBits;
+        /// <summary>
+        /// The equal operator
+        /// </summary>
+        /// <param name="left"></param>
+        /// <param name="right"></param>
+        /// <returns></returns>
+        public static bool operator ==(MassData left, MassData right)
+        {
+            return (left.Area == right.Area && left.Mass == right.Mass && left.Centroid == right.Centroid && left.Inertia == right.Inertia);
+        }
 
-		/// <summary>
-		/// Collision groups allow a certain group of objects to never collide (negative)
-		/// or always collide (positive). Zero means no collision group. Non-zero group
-		/// filtering always wins against the mask bits.
-		/// </summary>
-		public short GroupIndex;
-	}
+        /// <summary>
+        /// The not equal operator
+        /// </summary>
+        /// <param name="left"></param>
+        /// <param name="right"></param>
+        /// <returns></returns>
+        public static bool operator !=(MassData left, MassData right)
+        {
+            return !(left == right);
+        }
 
-	/// <summary>
-	/// The various collision shape types supported by Box2D.
-	/// </summary>
-	public enum ShapeType
-	{
-		UnknownShape = -1,
-		CircleShape,
-		PolygonShape,
-		ShapeTypeCount,
-	}
+        public bool Equals(MassData other)
+        {
+            return this == other;
+        }
 
-	/// <summary>
-	/// Returns code from TestSegment
-	/// </summary>
-	public enum SegmentCollide
-	{
-		StartInsideCollide = -1,
-		MissCollide = 0,
-		HitCollide = 1
-	}
+        public override bool Equals(object obj)
+        {
+            if (ReferenceEquals(null, obj))
+                return false;
 
-#warning "CAS"
-	/// <summary>
-	/// A shape definition is used to construct a shape. This class defines an
-	/// abstract shape definition. You can reuse shape definitions safely.
-	/// </summary>
-	public class ShapeDef
-	{
-		/// <summary>
-		/// Holds the shape type for down-casting.
-		/// </summary>
-		public ShapeType Type;
+            if (obj.GetType() != typeof(MassData))
+                return false;
 
-		/// <summary>
-		/// Use this to store application specify shape data.
-		/// </summary>
-		public object UserData;
+            return Equals((MassData)obj);
+        }
 
-		/// <summary>
-		/// The shape's friction coefficient, usually in the range [0,1].
-		/// </summary>
-		public float Friction;
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int result = Area.GetHashCode();
+                result = (result * 397) ^ Centroid.GetHashCode();
+                result = (result * 397) ^ Inertia.GetHashCode();
+                result = (result * 397) ^ Mass.GetHashCode();
+                return result;
+            }
+        }
+    }
 
-		/// <summary>
-		/// The shape's restitution (elasticity) usually in the range [0,1].
-		/// </summary>
-		public float Restitution;
+    public enum ShapeType
+    {
+        Unknown = -1,
+        Circle = 0,
+        Edge = 1,
+        Polygon = 2,
+        Chain = 3,
+        TypeCount = 4,
+    }
 
-		/// <summary>
-		/// The shape's density, usually in kg/m^2.
-		/// </summary>
-		public float Density;
+    /// <summary>
+    /// A shape is used for collision detection. You can create a shape however you like.
+    /// Shapes used for simulation in World are created automatically when a Fixture
+    /// is created. Shapes may encapsulate a one or more child shapes.
+    /// </summary>
+    public abstract class Shape
+    {
+        internal float _density;
+        internal float _radius;
+        internal float _2radius;
 
-		/// <summary>
-		/// A sensor shape collects contact information but never generates a collision
-		/// response.
-		/// </summary>
-		public bool IsSensor;
+        protected Shape(float density)
+        {
+            _density = density;
+            ShapeType = ShapeType.Unknown;
+        }
 
-		/// <summary>
-		/// Contact filtering data.
-		/// </summary>
-		public FilterData Filter;
+        /// <summary>
+        /// Contains the properties of the shape such as:
+        /// - Area of the shape
+        /// - Centroid
+        /// - Inertia
+        /// - Mass
+        /// </summary>
+        public MassData MassData;
 
-		/// <summary>
-		/// The constructor sets the default shape definition values.
-		/// </summary>
-		public ShapeDef()
-		{
-			Type = ShapeType.UnknownShape;
-			UserData = null;
-			Friction = 0.2f;
-			Restitution = 0.0f;
-			Density = 0.0f;
-			Filter.CategoryBits = 0x0001;
-			Filter.MaskBits = 0xFFFF;
-			Filter.GroupIndex = 0;
-			IsSensor = false;
-		}
-	}
+        /// <summary>
+        /// Get the type of this shape.
+        /// </summary>
+        /// <value>The type of the shape.</value>
+        public ShapeType ShapeType { get; internal set; }
 
-	/// <summary>
-	/// A shape is used for collision detection. Shapes are created in World.
-	/// You can use shape for collision detection before they are attached to the world.
-	/// Warning: you cannot reuse shapes.
-	/// </summary>
-	public abstract class Shape : IDisposable
-	{
-		#region Fields and Properties
+        /// <summary>
+        /// Get the number of child primitives.
+        /// </summary>
+        /// <value></value>
+        public abstract int ChildCount { get; }
 
-		protected ShapeType _type;
-		/// <summary>
-		/// Get the type of this shape. You can use this to down cast to the concrete shape.
-		/// </summary>
-		//public ShapeType Type { get { return _type; } }
-		public new ShapeType GetType() { return _type; }
+        /// <summary>
+        /// Gets or sets the density.
+        /// Changing the density causes a recalculation of shape properties.
+        /// </summary>
+        /// <value>The density.</value>
+        public float Density
+        {
+            get { return _density; }
+            set
+            {
+                Debug.Assert(value >= 0);
 
-		internal Shape _next;
-		/// <summary>
-		/// Get the next shape in the parent body's shape list.
-		/// </summary>
-		//public Shape Next { get { return _next; } }
-		public Shape GetNext() { return _next; }
+                _density = value;
+                ComputeProperties();
+            }
+        }
 
-		internal Body _body;
-		/// <summary>
-		/// Get the parent body of this shape. This is NULL if the shape is not attached.
-		/// </summary>
-		//public Body Body { get { return _body; } }
-		public Body GetBody() { return _body; }
+        /// <summary>
+        /// Radius of the Shape
+        /// Changing the radius causes a recalculation of shape properties.
+        /// </summary>
+        public float Radius
+        {
+            get { return _radius; }
+            set
+            {
+                Debug.Assert(value >= 0);
 
-		// Sweep radius relative to the parent body's center of mass.
-		protected float _sweepRadius;
-		/// <summary>
-		/// Get the maximum radius about the parent body's center of mass.
-		/// </summary>
-		public float GetSweepRadius() { return _sweepRadius; }
+                _radius = value;
+                _2radius = _radius * _radius;
 
-		protected float _density;
+                ComputeProperties();
+            }
+        }
 
-		protected float _friction;
-		public float Friction { get { return _friction; } set { _friction = value; } }
+        /// <summary>
+        /// Clone the concrete shape
+        /// </summary>
+        /// <returns>A clone of the shape</returns>
+        public abstract Shape Clone();
 
-		protected float _restitution;
-		public float Restitution { get { return _restitution; } set { _restitution = value; } }
+        /// <summary>
+        /// Test a point for containment in this shape.
+        /// Note: This only works for convex shapes.
+        /// </summary>
+        /// <param name="transform">The shape world transform.</param>
+        /// <param name="point">A point in world coordinates.</param>
+        /// <returns>True if the point is inside the shape</returns>
+        public abstract bool TestPoint(ref Transform transform, ref Vector2 point);
 
-		protected ushort _proxyId;
+        /// <summary>
+        /// Cast a ray against a child shape.
+        /// </summary>
+        /// <param name="output">The ray-cast results.</param>
+        /// <param name="input">The ray-cast input parameters.</param>
+        /// <param name="transform">The transform to be applied to the shape.</param>
+        /// <param name="childIndex">The child shape index.</param>
+        /// <returns>True if the ray-cast hits the shape</returns>
+        public abstract bool RayCast(out RayCastOutput output, ref RayCastInput input, ref Transform transform, int childIndex);
 
-		protected bool _isSensor;
-		/// <summary>
-		/// Is this shape a sensor (non-solid)?
-		/// </summary>
-		public bool IsSensor { get { return _isSensor; } }
+        /// <summary>
+        /// Given a transform, compute the associated axis aligned bounding box for a child shape.
+        /// </summary>
+        /// <param name="aabb">The aabb results.</param>
+        /// <param name="transform">The world transform of the shape.</param>
+        /// <param name="childIndex">The child shape index.</param>
+        public abstract void ComputeAABB(out AABB aabb, ref Transform transform, int childIndex);
 
-		protected FilterData _filter;
-		/// <summary>
-		/// Get\Set the contact filtering data. You must call World.Refilter to correct
-		/// existing contacts/non-contacts.
-		/// </summary>
-		public FilterData FilterData
-		{
-			get { return _filter; }
-			set { _filter = value; }
-		}
+        /// <summary>
+        /// Compute the mass properties of this shape using its dimensions and density.
+        /// The inertia tensor is computed about the local origin, not the centroid.
+        /// </summary>
+        protected abstract void ComputeProperties();
 
-		protected object _userData;
-		/// <summary>
-		/// Get the user data that was assigned in the shape definition. Use this to
-		/// store your application specific data.
-		/// </summary>
-		public object UserData
-		{
-			get { return _userData; }
-			set { _userData = value; }
-		}
+        /// <summary>
+        /// Compare this shape to another shape based on type and properties.
+        /// </summary>
+        /// <param name="shape">The other shape</param>
+        /// <returns>True if the two shapes are the same.</returns>
+        public bool CompareTo(Shape shape)
+        {
+            if (shape is PolygonShape && this is PolygonShape)
+                return ((PolygonShape)this).CompareTo((PolygonShape)shape);
 
-		#endregion Fields and Properties
+            if (shape is CircleShape && this is CircleShape)
+                return ((CircleShape)this).CompareTo((CircleShape)shape);
 
-		protected Shape(ShapeDef def)
-		{
-			_userData = def.UserData;
-			_friction = def.Friction;
-			_restitution = def.Restitution;
-			_density = def.Density;
-			_body = null;
-			_sweepRadius = 0.0f;
-			_next = null;
-			_proxyId = PairManager.NullProxy;
-			_filter = def.Filter;
-			_isSensor = def.IsSensor;
-		}
+            if (shape is EdgeShape && this is EdgeShape)
+                return ((EdgeShape)this).CompareTo((EdgeShape)shape);
 
-		/// <summary>
-		/// Test a point for containment in this shape. This only works for convex shapes.
-		/// </summary>
-		/// <param name="xf">The shape world transform.</param>
-		/// <param name="p">A point in world coordinates.</param>
-		/// <returns></returns>
-		public abstract bool TestPoint(XForm xf, Vec2 p);
+            if (shape is ChainShape && this is ChainShape)
+                return ((ChainShape)this).CompareTo((ChainShape)shape);
 
-		/// <summary>
-		/// Perform a ray cast against this shape.
-		/// </summary>
-		/// <param name="xf">The shape world transform.</param>
-		/// <param name="lambda">Returns the hit fraction. You can use this to compute the contact point
-		/// p = (1 - lambda) * segment.P1 + lambda * segment.P2.</param>
-		/// <param name="normal"> Returns the normal at the contact point. If there is no intersection, 
-		/// the normal is not set.</param>
-		/// <param name="segment">Defines the begin and end point of the ray cast.</param>
-		/// <param name="maxLambda">A number typically in the range [0,1].</param>
-		public abstract SegmentCollide TestSegment(XForm xf, out float lambda, out Vec2 normal, Segment segment, float maxLambda);
+            return false;
+        }
 
-		/// <summary>
-		/// Given a transform, compute the associated axis aligned bounding box for this shape.
-		/// </summary>
-		/// <param name="aabb">Returns the axis aligned box.</param>
-		/// <param name="xf">The world transform of the shape.</param>
-		public abstract void ComputeAABB(out AABB aabb, XForm xf);
-
-		/// <summary>
-		/// Given two transforms, compute the associated swept axis aligned bounding box for this shape.
-		/// </summary>
-		/// <param name="aabb">Returns the axis aligned box.</param>
-		/// <param name="xf1">The starting shape world transform.</param>
-		/// <param name="xf2">The ending shape world transform.</param>
-		public abstract void ComputeSweptAABB(out AABB aabb, XForm xf1, XForm xf2);
-
-		/// <summary>
-		/// Compute the mass properties of this shape using its dimensions and density.
-		/// The inertia tensor is computed about the local origin, not the centroid.
-		/// </summary>
-		/// <param name="massData">Returns the mass data for this shape</param>
-		public abstract void ComputeMass(out MassData massData);
-
-		internal abstract void UpdateSweepRadius(Vec2 center);
-
-		internal static Shape Create(ShapeDef def)
-		{
-			switch (def.Type)
-			{
-				case ShapeType.CircleShape:
-					{
-						return new CircleShape(def);
-					}
-
-				case ShapeType.PolygonShape:
-					{
-						return new PolygonShape(def);
-					}
-
-				default:
-					Box2DXDebug.Assert(false);
-					return null;
-			}
-		}
-
-		internal static void Destroy(Shape s)
-		{
-			switch (s.GetType())
-			{
-				case ShapeType.CircleShape:
-					if (s is IDisposable)
-						(s as IDisposable).Dispose();
-					s = null;
-					break;
-
-				case ShapeType.PolygonShape:
-					if (s is IDisposable)
-						(s as IDisposable).Dispose();
-					s = null;
-					break;
-
-				default:
-					Box2DXDebug.Assert(false);
-					break;
-			}
-		}
-
-		internal void CreateProxy(BroadPhase broadPhase, XForm transform)
-		{
-			Box2DXDebug.Assert(_proxyId == PairManager.NullProxy);
-
-			AABB aabb;
-			ComputeAABB(out aabb, transform);
-
-			bool inRange = broadPhase.InRange(aabb);
-
-			// You are creating a shape outside the world box.
-			Box2DXDebug.Assert(inRange);
-
-			if (inRange)
-			{
-				_proxyId = broadPhase.CreateProxy(aabb, this);
-			}
-			else
-			{
-				_proxyId = PairManager.NullProxy;
-			}
-		}
-
-		internal void DestroyProxy(BroadPhase broadPhase)
-		{
-			if (_proxyId != PairManager.NullProxy)
-			{
-				broadPhase.DestroyProxy(_proxyId);
-				_proxyId = PairManager.NullProxy;
-			}
-		}
-
-		internal bool Synchronize(BroadPhase broadPhase, XForm transform1, XForm transform2)
-		{
-			if (_proxyId == PairManager.NullProxy)
-			{
-				return false;
-			}
-
-			// Compute an AABB that covers the swept shape (may miss some rotation effect).
-			AABB aabb;
-			ComputeSweptAABB(out aabb, transform1, transform2);
-
-			if (broadPhase.InRange(aabb))
-			{
-				broadPhase.MoveProxy(_proxyId, aabb);
-				return true;
-			}
-			else
-			{
-				return false;
-			}
-		}
-
-		internal void RefilterProxy(BroadPhase broadPhase, XForm transform)
-		{
-			if (_proxyId == PairManager.NullProxy)
-			{
-				return;
-			}
-
-			broadPhase.DestroyProxy(_proxyId);
-
-			AABB aabb;
-			ComputeAABB(out aabb, transform);
-
-			bool inRange = broadPhase.InRange(aabb);
-
-			if (inRange)
-			{
-				_proxyId = broadPhase.CreateProxy(aabb, this);
-			}
-			else
-			{
-				_proxyId = PairManager.NullProxy;
-			}
-		}
-
-		public virtual void Dispose()
-		{
-			Box2DXDebug.Assert(_proxyId == PairManager.NullProxy);
-		}
-	}
+        /// <summary>
+        /// Used for the buoyancy controller
+        /// </summary>
+        public abstract float ComputeSubmergedArea(ref Vector2 normal, float offset, ref Transform xf, out Vector2 sc);
+    }
 }

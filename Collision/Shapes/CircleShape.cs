@@ -1,181 +1,198 @@
 ﻿/*
-  Box2DX Copyright (c) 2008 Ihar Kalasouski http://code.google.com/p/box2dx
-  Box2D original C++ version Copyright (c) 2006-2007 Erin Catto http://www.gphysics.com
-
-  This software is provided 'as-is', without any express or implied
-  warranty.  In no event will the authors be held liable for any damages
-  arising from the use of this software.
-
-  Permission is granted to anyone to use this software for any purpose,
-  including commercial applications, and to alter it and redistribute it
-  freely, subject to the following restrictions:
-
-  1. The origin of this software must not be misrepresented; you must not
-     claim that you wrote the original software. If you use this software
-     in a product, an acknowledgment in the product documentation would be
-     appreciated but is not required.
-  2. Altered source versions must be plainly marked as such, and must not be
-     misrepresented as being the original software.
-  3. This notice may not be removed or altered from any source distribution.
+* Farseer Physics Engine:
+* Copyright (c) 2012 Ian Qvist
+* 
+* Original source Box2D:
+* Copyright (c) 2006-2011 Erin Catto http://www.box2d.org
+*
+* This software is provided 'as-is', without any express or implied
+* warranty.  In no event will the authors be held liable for any damages
+* arising from the use of this software.
+* Permission is granted to anyone to use this software for any purpose,
+* including commercial applications, and to alter it and redistribute it
+* freely, subject to the following restrictions:
+* 1. The origin of this software must not be misrepresented; you must not
+* claim that you wrote the original software. If you use this software
+* in a product, an acknowledgment in the product documentation would be
+* appreciated but is not required.
+* 2. Altered source versions must be plainly marked as such, and must not be
+* misrepresented as being the original software.
+* 3. This notice may not be removed or altered from any source distribution.
 */
 
 using System;
-using System.Collections.Generic;
-using System.Text;
+using System.Diagnostics;
+using FarseerPhysics.Common;
+using Microsoft.Xna.Framework;
 
-using Box2DX.Common;
-
-namespace Box2DX.Collision
+namespace FarseerPhysics.Collision.Shapes
 {
-	/// <summary>
-	/// This structure is used to build circle shapes.
-	/// </summary>
-	public class CircleDef : ShapeDef
-	{
-		public Vec2 LocalPosition;
-		public float Radius;
+    /// <summary>
+    /// A circle shape.
+    /// </summary>
+    public class CircleShape : Shape
+    {
+        internal Vector2 _position;
 
-		public CircleDef()
-		{
-			Type = ShapeType.CircleShape;
-			LocalPosition = Vec2.Zero;
-			Radius = 1.0f;
-		}
-	}
+        /// <summary>
+        /// Create a new circle with the desired radius and density.
+        /// </summary>
+        /// <param name="radius">The radius of the circle.</param>
+        /// <param name="density">The density of the circle.</param>
+        public CircleShape(float radius, float density)
+            : base(density)
+        {
+            Debug.Assert(radius >= 0);
+            Debug.Assert(density >= 0);
 
-	/// <summary>
-	/// A circle shape.
-	/// </summary>
-	public class CircleShape : Shape
-	{
-		// Local position in parent body
-		private Vec2 _localPosition;
-		// Radius of this circle.
-		private float _radius;
+            ShapeType = ShapeType.Circle;
+            _position = Vector2.Zero;
+            Radius = radius; // The Radius property cache 2radius and calls ComputeProperties(). So no need to call ComputeProperties() here.
+        }
 
-		internal CircleShape(ShapeDef def)
-			: base(def)
-		{
-			Box2DXDebug.Assert(def.Type == ShapeType.CircleShape);
-			CircleDef circleDef = (CircleDef)def;
+        internal CircleShape()
+            : base(0)
+        {
+            ShapeType = ShapeType.Circle;
+            _radius = 0.0f;
+            _position = Vector2.Zero;
+        }
 
-			_type = ShapeType.CircleShape;
-			_localPosition = circleDef.LocalPosition;
-			_radius = circleDef.Radius;
-		}
+        public override int ChildCount
+        {
+            get { return 1; }
+        }
 
-		internal override void UpdateSweepRadius(Vec2 center)
-		{
-			// Update the sweep radius (maximum radius) as measured from
-			// a local center point.
-			Vec2 d = _localPosition - center;
-			_sweepRadius = d.Length() + _radius - Settings.ToiSlop;
-		}
+        /// <summary>
+        /// Get or set the position of the circle
+        /// </summary>
+        public Vector2 Position
+        {
+            get { return _position; }
+            set
+            {
+                _position = value;
+                ComputeProperties(); //TODO: Optimize here
+            }
+        }
 
-		public override bool TestPoint(XForm transform, Vec2 p)
-		{
-			Vec2 center = transform.Position + Common.Math.Mul(transform.R, _localPosition);
-			Vec2 d = p - center;
-			return Vec2.Dot(d, d) <= _radius * _radius;
-		}
+        public override bool TestPoint(ref Transform transform, ref Vector2 point)
+        {
+            Vector2 center = transform.p + MathUtils.Mul(transform.q, Position);
+            Vector2 d = point - center;
+            return Vector2.Dot(d, d) <= _2radius;
+        }
 
-		// Collision Detection in Interactive 3D Environments by Gino van den Bergen
-		// From Section 3.1.2
-		// x = s + a * r
-		// norm(x) = radius
-		public override SegmentCollide TestSegment(XForm transform, out float lambda, out Vec2 normal, Segment segment, float maxLambda)
-		{
-			lambda = 0f;
-			normal = Vec2.Zero;
+        public override bool RayCast(out RayCastOutput output, ref RayCastInput input, ref Transform transform, int childIndex)
+        {
+            // Collision Detection in Interactive 3D Environments by Gino van den Bergen
+            // From Section 3.1.2
+            // x = s + a * r
+            // norm(x) = radius
 
-			Vec2 position = transform.Position + Common.Math.Mul(transform.R, _localPosition);
-			Vec2 s = segment.P1 - position;
-			float b = Vec2.Dot(s, s) - _radius * _radius;
+            output = new RayCastOutput();
 
-			// Does the segment start inside the circle?
-			if (b < 0.0f)
-			{
-				lambda = 0f;
-				return SegmentCollide.StartInsideCollide;
-			}
+            Vector2 position = transform.p + MathUtils.Mul(transform.q, Position);
+            Vector2 s = input.Point1 - position;
+            float b = Vector2.Dot(s, s) - _2radius;
 
-			// Solve quadratic equation.
-			Vec2 r = segment.P2 - segment.P1;
-			float c = Vec2.Dot(s, r);
-			float rr = Vec2.Dot(r, r);
-			float sigma = c * c - rr * b;
+            // Solve quadratic equation.
+            Vector2 r = input.Point2 - input.Point1;
+            float c = Vector2.Dot(s, r);
+            float rr = Vector2.Dot(r, r);
+            float sigma = c * c - rr * b;
 
-			// Check for negative discriminant and short segment.
-			if (sigma < 0.0f || rr < Common.Settings.FLT_EPSILON)
-			{
-				return SegmentCollide.MissCollide;
-			}
+            // Check for negative discriminant and short segment.
+            if (sigma < 0.0f || rr < Settings.Epsilon)
+            {
+                return false;
+            }
 
-			// Find the point of intersection of the line with the circle.
-			float a = -(c + Common.Math.Sqrt(sigma));
+            // Find the point of intersection of the line with the circle.
+            float a = -(c + (float)Math.Sqrt(sigma));
 
-			// Is the intersection point on the segment?
-			if (0.0f <= a && a <= maxLambda * rr)
-			{
-				a /= rr;
-				lambda = a;
-				normal = s + a * r;
-				normal.Normalize();
-				return SegmentCollide.HitCollide;
-			}
+            // Is the intersection point on the segment?
+            if (0.0f <= a && a <= input.MaxFraction * rr)
+            {
+                a /= rr;
+                output.Fraction = a;
 
-			return SegmentCollide.MissCollide;
-		}
+                //TODO: Check results here
+                output.Normal = s + a * r;
+                output.Normal.Normalize();
+                return true;
+            }
 
-		public override void ComputeAABB(out AABB aabb, XForm transform)
-		{
-			aabb = new AABB();
+            return false;
+        }
 
-			Vec2 p = transform.Position + Common.Math.Mul(transform.R, _localPosition);
-			aabb.LowerBound.Set(p.X - _radius, p.Y - _radius);
-			aabb.UpperBound.Set(p.X + _radius, p.Y + _radius);
-		}
+        public override void ComputeAABB(out AABB aabb, ref Transform transform, int childIndex)
+        {
+            Vector2 p = transform.p + MathUtils.Mul(transform.q, Position);
+            aabb.LowerBound = new Vector2(p.X - Radius, p.Y - Radius);
+            aabb.UpperBound = new Vector2(p.X + Radius, p.Y + Radius);
+        }
 
-		public override void ComputeSweptAABB(out AABB aabb, XForm transform1, XForm transform2)
-		{
-			aabb = new AABB();
+        protected override sealed void ComputeProperties()
+        {
+            float area = Settings.Pi * _2radius;
+            MassData.Area = area;
+            MassData.Mass = Density * area;
+            MassData.Centroid = Position;
 
-			Vec2 p1 = transform1.Position + Common.Math.Mul(transform1.R, _localPosition);
-			Vec2 p2 = transform2.Position + Common.Math.Mul(transform2.R, _localPosition);
-			Vec2 lower = Common.Math.Min(p1, p2);
-			Vec2 upper = Common.Math.Max(p1, p2);
+            // inertia about the local origin
+            MassData.Inertia = MassData.Mass * (0.5f * _2radius + Vector2.Dot(Position, Position));
+        }
 
-			aabb.LowerBound.Set(lower.X - _radius, lower.Y - _radius);
-			aabb.UpperBound.Set(upper.X + _radius, upper.Y + _radius);
-		}
+        public override float ComputeSubmergedArea(ref Vector2 normal, float offset, ref Transform xf, out Vector2 sc)
+        {
+            sc = Vector2.Zero;
 
-		public override void ComputeMass(out MassData massData)
-		{
-			massData = new MassData();
+            Vector2 p = MathUtils.Mul(ref xf, Position);
+            float l = -(Vector2.Dot(normal, p) - offset);
+            if (l < -Radius + Settings.Epsilon)
+            {
+                //Completely dry
+                return 0;
+            }
+            if (l > Radius)
+            {
+                //Completely wet
+                sc = p;
+                return Settings.Pi * _2radius;
+            }
 
-			massData.Mass = _density * Settings.Pi * _radius * _radius;
-			massData.Center = _localPosition;
+            //Magic
+            float l2 = l * l;
+            float area = _2radius * (float)((Math.Asin(l / Radius) + Settings.Pi / 2) + l * Math.Sqrt(_2radius - l2));
+            float com = -2.0f / 3.0f * (float)Math.Pow(_2radius - l2, 1.5f) / area;
 
-			// inertia about the local origin
-			massData.I = massData.Mass * (0.5f * _radius * _radius + Vec2.Dot(_localPosition, _localPosition));
-		}
+            sc.X = p.X + normal.X * com;
+            sc.Y = p.Y + normal.Y * com;
 
-		/// <summary>
-		/// Get the local position of this circle in its parent body.
-		/// </summary>
-		/// <returns></returns>
-		public Vec2 GetLocalPosition()
-		{
-			return _localPosition;
-		}
+            return area;
+        }
 
-		/// <summary>
-		/// Get the radius of this circle.
-		/// </summary>
-		/// <returns></returns>
-		public float GetRadius()
-		{
-			return _radius;
-		}
-	}
+        /// <summary>
+        /// Compare the circle to another circle
+        /// </summary>
+        /// <param name="shape">The other circle</param>
+        /// <returns>True if the two circles are the same size and have the same position</returns>
+        public bool CompareTo(CircleShape shape)
+        {
+            return (Radius == shape.Radius && Position == shape.Position);
+        }
+
+        public override Shape Clone()
+        {
+            CircleShape clone = new CircleShape();
+            clone.ShapeType = ShapeType;
+            clone._radius = Radius;
+            clone._2radius = _2radius; //FPE note: We also copy the cache
+            clone._density = _density;
+            clone._position = _position;
+            clone.MassData = MassData;
+            return clone;
+        }
+    }
 }

@@ -1,658 +1,768 @@
-﻿/*
-  Box2DX Copyright (c) 2008 Ihar Kalasouski http://code.google.com/p/box2dx
-  Box2D original C++ version Copyright (c) 2006-2007 Erin Catto http://www.gphysics.com
-
-  This software is provided 'as-is', without any express or implied
-  warranty.  In no event will the authors be held liable for any damages
-  arising from the use of this software.
-
-  Permission is granted to anyone to use this software for any purpose,
-  including commercial applications, and to alter it and redistribute it
-  freely, subject to the following restrictions:
-
-  1. The origin of this software must not be misrepresented; you must not
-     claim that you wrote the original software. If you use this software
-     in a product, an acknowledgment in the product documentation would be
-     appreciated but is not required.
-  2. Altered source versions must be plainly marked as such, and must not be
-     misrepresented as being the original software.
-  3. This notice may not be removed or altered from any source distribution.
+/*
+* Farseer Physics Engine:
+* Copyright (c) 2012 Ian Qvist
+* 
+* Original source Box2D:
+* Copyright (c) 2006-2011 Erin Catto http://www.box2d.org 
+* 
+* This software is provided 'as-is', without any express or implied 
+* warranty.  In no event will the authors be held liable for any damages 
+* arising from the use of this software. 
+* Permission is granted to anyone to use this software for any purpose, 
+* including commercial applications, and to alter it and redistribute it 
+* freely, subject to the following restrictions: 
+* 1. The origin of this software must not be misrepresented; you must not 
+* claim that you wrote the original software. If you use this software 
+* in a product, an acknowledgment in the product documentation would be 
+* appreciated but is not required. 
+* 2. Altered source versions must be plainly marked as such, and must not be 
+* misrepresented as being the original software. 
+* 3. This notice may not be removed or altered from any source distribution. 
 */
 
-// Linear constraint (point-to-line)
-// d = p2 - p1 = x2 + r2 - x1 - r1
-// C = dot(ay1, d)
-// Cdot = dot(d, cross(w1, ay1)) + dot(ay1, v2 + cross(w2, r2) - v1 - cross(w1, r1))
-//      = -dot(ay1, v1) - dot(cross(d + r1, ay1), w1) + dot(ay1, v2) + dot(cross(r2, ay1), v2)
-// J = [-ay1 -cross(d+r1,ay1) ay1 cross(r2,ay1)]
-//
-// Angular constraint
-// C = a2 - a1 + a_initial
-// Cdot = w2 - w1
-// J = [0 0 -1 0 0 1]
-
-// Motor/Limit linear constraint
-// C = dot(ax1, d)
-// Cdot = = -dot(ax1, v1) - dot(cross(d + r1, ax1), w1) + dot(ax1, v2) + dot(cross(r2, ax1), v2)
-// J = [-ax1 -cross(d+r1,ax1) ax1 cross(r2,ax1)]
-
 using System;
-using System.Collections.Generic;
-using System.Text;
+using System.Diagnostics;
+using FarseerPhysics.Common;
+using Microsoft.Xna.Framework;
 
-using Box2DX.Common;
-
-namespace Box2DX.Dynamics
+namespace FarseerPhysics.Dynamics.Joints
 {
-	using Box2DXMath = Box2DX.Common.Math;
-	using SystemMath = System.Math;
-
-	/// <summary>
-	/// Prismatic joint definition. This requires defining a line of
-	/// motion using an axis and an anchor point. The definition uses local
-	/// anchor points and a local axis so that the initial configuration
-	/// can violate the constraint slightly. The joint translation is zero
-	/// when the local anchor points coincide in world space. Using local
-	/// anchors and a local axis helps when saving and loading a game.
-	/// </summary>
-	public class PrismaticJointDef : JointDef
-	{
-		public PrismaticJointDef()
-		{
-			Type = JointType.PrismaticJoint;
-			LocalAnchor1.SetZero();
-			LocalAnchor2.SetZero();
-			LocalAxis1.Set(1.0f, 0.0f);
-			ReferenceAngle = 0.0f;
-			EnableLimit = false;
-			LowerTranslation = 0.0f;
-			UpperTranslation = 0.0f;
-			EnableMotor = false;
-			MaxMotorForce = 0.0f;
-			MotorSpeed = 0.0f;
-		}
-
-		/// <summary>
-		/// Initialize the bodies, anchors, axis, and reference angle using the world
-		/// anchor and world axis.
-		/// </summary>
-		/// <param name="body1"></param>
-		/// <param name="body2"></param>
-		/// <param name="anchor"></param>
-		/// <param name="axis"></param>
-		public void Initialize(Body body1, Body body2, Vec2 anchor, Vec2 axis)
-		{
-			Body1 = body1;
-			Body2 = body2;
-			LocalAnchor1 = body1.GetLocalPoint(anchor);
-			LocalAnchor2 = body2.GetLocalPoint(anchor);
-			LocalAxis1 = body1.GetLocalVector(axis);
-			ReferenceAngle = body2.GetAngle() - body1.GetAngle();
-		}
-
-		/// <summary>
-		/// The local anchor point relative to body1's origin.
-		/// </summary>
-		public Vec2 LocalAnchor1;
-
-		/// <summary>
-		/// The local anchor point relative to body2's origin.
-		/// </summary>
-		public Vec2 LocalAnchor2;
-
-		/// <summary>
-		/// The local translation axis in body1.
-		/// </summary>
-		public Vec2 LocalAxis1;
-
-		/// <summary>
-		/// The constrained angle between the bodies: body2_angle - body1_angle.
-		/// </summary>
-		public float ReferenceAngle;
-
-		/// <summary>
-		/// Enable/disable the joint limit.
-		/// </summary>
-		public bool EnableLimit;
-
-		/// <summary>
-		/// The lower translation limit, usually in meters.
-		/// </summary>
-		public float LowerTranslation;
-
-		/// <summary>
-		/// The upper translation limit, usually in meters.
-		/// </summary>
-		public float UpperTranslation;
-
-		/// <summary>
-		/// Enable/disable the joint motor.
-		/// </summary>
-		public bool EnableMotor;
-
-		/// <summary>
-		/// The maximum motor torque, usually in N-m.
-		/// </summary>
-		public float MaxMotorForce;
-
-		/// <summary>
-		/// The desired motor speed in radians per second.
-		/// </summary>
-		public float MotorSpeed;
-	}
-
-	/// <summary>
-	/// A prismatic joint. This joint provides one degree of freedom: translation
-	/// along an axis fixed in body1. Relative rotation is prevented. You can
-	/// use a joint limit to restrict the range of motion and a joint motor to
-	/// drive the motion or to model joint friction.
-	/// </summary>
-	public class PrismaticJoint : Joint
-	{
-		public Vec2 _localAnchor1;
-		public Vec2 _localAnchor2;
-		public Vec2 _localXAxis1;
-		public Vec2 _localYAxis1;
-		public float _refAngle;
-
-		public Jacobian _linearJacobian;
-		public float _linearMass;				// effective mass for point-to-line constraint.
-		public float _force;
-
-		public float _angularMass;			// effective mass for angular constraint.
-		public float _torque;
-
-		public Jacobian _motorJacobian;
-		public float _motorMass;			// effective mass for motor/limit translational constraint.
-		public float _motorForce;
-		public float _limitForce;
-		public float _limitPositionImpulse;
-
-		public float _lowerTranslation;
-		public float _upperTranslation;
-		public float _maxMotorForce;
-		public float _motorSpeed;
-
-		public bool _enableLimit;
-		public bool _enableMotor;
-		public LimitState _limitState;
-
-		public override Vec2 Anchor1
-		{
-			get { return _body1.GetWorldPoint(_localAnchor1); }
-		}
-
-		public override Vec2 Anchor2
-		{
-			get { return _body2.GetWorldPoint(_localAnchor2); }
-		}
-
-		public override Vec2 ReactionForce
-		{
-			get
-			{
-				Vec2 ax1 = Common.Math.Mul(_body1.GetXForm().R, _localXAxis1);
-				Vec2 ay1 = Common.Math.Mul(_body1.GetXForm().R, _localYAxis1);
-
-				return Settings.FORCE_SCALE(1.0f) * (_limitForce * ax1 + _force * ay1);
-			}
-		}
-
-		public override float ReactionTorque
-		{
-			get { return Settings.FORCE_SCALE(_torque); }
-		}
-
-		/// <summary>
-		/// Get the current joint translation, usually in meters.
-		/// </summary>
-		public float JointTranslation
-		{
-			get
-			{
-				Body b1 = _body1;
-				Body b2 = _body2;
-
-				Vec2 p1 = b1.GetWorldPoint(_localAnchor1);
-				Vec2 p2 = b2.GetWorldPoint(_localAnchor2);
-				Vec2 d = p2 - p1;
-				Vec2 axis = b1.GetWorldVector(_localXAxis1);
-
-				float translation = Vec2.Dot(d, axis);
-				return translation;
-			}
-		}
-
-		/// <summary>
-		/// Get the current joint translation speed, usually in meters per second.
-		/// </summary>
-		public float JointSpeed
-		{
-			get
-			{
-				Body b1 = _body1;
-				Body b2 = _body2;
-
-				Vec2 r1 = Common.Math.Mul(b1.GetXForm().R, _localAnchor1 - b1.GetLocalCenter());
-				Vec2 r2 = Common.Math.Mul(b2.GetXForm().R, _localAnchor2 - b2.GetLocalCenter());
-				Vec2 p1 = b1._sweep.C + r1;
-				Vec2 p2 = b2._sweep.C + r2;
-				Vec2 d = p2 - p1;
-				Vec2 axis = b1.GetWorldVector(_localXAxis1);
-
-				Vec2 v1 = b1._linearVelocity;
-				Vec2 v2 = b2._linearVelocity;
-				float w1 = b1._angularVelocity;
-				float w2 = b2._angularVelocity;
-
-				float speed = Vec2.Dot(d, Vec2.Cross(w1, axis)) + Vec2.Dot(axis, v2 + Vec2.Cross(w2, r2) - v1 - Vec2.Cross(w1, r1));
-				return speed;
-			}
-		}
-
-		/// <summary>
-		/// Is the joint limit enabled?
-		/// </summary>
-		public bool IsLimitEnabled
-		{
-			get { return _enableLimit; }
-		}
-
-		/// <summary>
-		/// Enable/disable the joint limit.
-		/// </summary>
-		/// <param name="flag"></param>
-		public void EnableLimit(bool flag)
-		{
-			_enableLimit = flag;
-		}
-
-		/// <summary>
-		/// Get the lower joint limit, usually in meters.
-		/// </summary>
-		public float LowerLimit
-		{
-			get { return _lowerTranslation; }
-		}
-
-		/// <summary>
-		/// Get the upper joint limit, usually in meters.
-		/// </summary>
-		public float UpperLimit
-		{
-			get { return _upperTranslation; }
-		}
-
-		/// <summary>
-		/// Set the joint limits, usually in meters.
-		/// </summary>
-		/// <param name="lower"></param>
-		/// <param name="upper"></param>
-		public void SetLimits(float lower, float upper)
-		{
-			Box2DXDebug.Assert(lower <= upper);
-			_lowerTranslation = lower;
-			_upperTranslation = upper;
-		}
-
-		/// <summary>
-		/// Is the joint motor enabled?
-		/// </summary>
-		public bool IsMotorEnabled
-		{
-			get { return _enableMotor; }
-		}
-
-		/// <summary>
-		/// Enable/disable the joint motor.
-		/// </summary>
-		/// <param name="flag"></param>
-		public void EnableMotor(bool flag)
-		{
-			_enableMotor = flag;
-		}
-
-		/// <summary>
-		/// Get\Set the motor speed, usually in meters per second.
-		/// </summary>
-		public float MotorSpeed
-		{
-			get { return _motorSpeed; }
-			set { _motorSpeed = value; }
-		}
-
-		/// <summary>
-		/// Set the maximum motor force, usually in N.
-		/// </summary>
-		/// <param name="torque"></param>
-		public void SetMaxMotorForce(float force)
-		{
-			_maxMotorForce = Settings.FORCE_SCALE(1.0f) * force;
-		}
-
-		/// <summary>
-		/// Get the current motor force, usually in N.
-		/// </summary>
-		public float MotorForce
-		{
-			get { return _motorForce; }
-		}
-
-		public PrismaticJoint(PrismaticJointDef def)
-			: base(def)
-		{
-			_localAnchor1 = def.LocalAnchor1;
-			_localAnchor2 = def.LocalAnchor2;
-			_localXAxis1 = def.LocalAxis1;
-			_localYAxis1 = Vec2.Cross(1.0f, _localXAxis1);
-			_refAngle = def.ReferenceAngle;
-
-			_linearJacobian.SetZero();
-			_linearMass = 0.0f;
-			_force = 0.0f;
-
-			_angularMass = 0.0f;
-			_torque = 0.0f;
-
-			_motorJacobian.SetZero();
-			_motorMass = 0.0f;
-			_motorForce = 0.0f;
-			_limitForce = 0.0f;
-			_limitPositionImpulse = 0.0f;
-
-			_lowerTranslation = def.LowerTranslation;
-			_upperTranslation = def.UpperTranslation;
-			_maxMotorForce = Settings.FORCE_INV_SCALE(def.MaxMotorForce);
-			_motorSpeed = def.MotorSpeed;
-			_enableLimit = def.EnableLimit;
-			_enableMotor = def.EnableMotor;
-		}
-
-		internal override void InitVelocityConstraints(TimeStep step)
-		{
-			Body b1 = _body1;
-			Body b2 = _body2;
-
-			// Compute the effective masses.
-			Vec2 r1 = Box2DXMath.Mul(b1.GetXForm().R, _localAnchor1 - b1.GetLocalCenter());
-			Vec2 r2 = Box2DXMath.Mul(b2.GetXForm().R, _localAnchor2 - b2.GetLocalCenter());
-
-			float invMass1 = b1._invMass, invMass2 = b2._invMass;
-			float invI1 = b1._invI, invI2 = b2._invI;
-
-			// Compute point to line constraint effective mass.
-			// J = [-ay1 -cross(d+r1,ay1) ay1 cross(r2,ay1)]
-			Vec2 ay1 = Box2DXMath.Mul(b1.GetXForm().R, _localYAxis1);
-			Vec2 e = b2._sweep.C + r2 - b1._sweep.C;	// e = d + r1
-
-			_linearJacobian.Set(-ay1, -Vec2.Cross(e, ay1), ay1, Vec2.Cross(r2, ay1));
-			_linearMass = invMass1 + invI1 * _linearJacobian.Angular1 * _linearJacobian.Angular1 +
-							invMass2 + invI2 * _linearJacobian.Angular2 * _linearJacobian.Angular2;
-			Box2DXDebug.Assert(_linearMass > Settings.FLT_EPSILON);
-			_linearMass = 1.0f / _linearMass;
-
-			// Compute angular constraint effective mass.
-			_angularMass = invI1 + invI2;
-			if (_angularMass > Settings.FLT_EPSILON)
-			{
-				_angularMass = 1.0f / _angularMass;
-			}
-
-			// Compute motor and limit terms.
-			if (_enableLimit || _enableMotor)
-			{
-				// The motor and limit share a Jacobian and effective mass.
-				Vec2 ax1 = Box2DXMath.Mul(b1.GetXForm().R, _localXAxis1);
-				_motorJacobian.Set(-ax1, -Vec2.Cross(e, ax1), ax1, Vec2.Cross(r2, ax1));
-				_motorMass = invMass1 + invI1 * _motorJacobian.Angular1 * _motorJacobian.Angular1 +
-								invMass2 + invI2 * _motorJacobian.Angular2 * _motorJacobian.Angular2;
-				Box2DXDebug.Assert(_motorMass > Settings.FLT_EPSILON);
-				_motorMass = 1.0f / _motorMass;
-
-				if (_enableLimit)
-				{
-					Vec2 d = e - r1;	// p2 - p1
-					float jointTranslation = Vec2.Dot(ax1, d);
-					if (Box2DXMath.Abs(_upperTranslation - _lowerTranslation) < 2.0f * Settings.LinearSlop)
-					{
-						_limitState = LimitState.EqualLimits;
-					}
-					else if (jointTranslation <= _lowerTranslation)
-					{
-						if (_limitState != LimitState.AtLowerLimit)
-						{
-							_limitForce = 0.0f;
-						}
-						_limitState = LimitState.AtLowerLimit;
-					}
-					else if (jointTranslation >= _upperTranslation)
-					{
-						if (_limitState != LimitState.AtUpperLimit)
-						{
-							_limitForce = 0.0f;
-						}
-						_limitState = LimitState.AtUpperLimit;
-					}
-					else
-					{
-						_limitState = LimitState.InactiveLimit;
-						_limitForce = 0.0f;
-					}
-				}
-			}
-
-			if (_enableMotor == false)
-			{
-				_motorForce = 0.0f;
-			}
-
-			if (_enableLimit == false)
-			{
-				_limitForce = 0.0f;
-			}
-
-			if (step.WarmStarting)
-			{
-				Vec2 P1 = Settings.FORCE_SCALE(step.Dt) * (_force * _linearJacobian.Linear1 + (_motorForce + _limitForce) * _motorJacobian.Linear1);
-				Vec2 P2 = Settings.FORCE_SCALE(step.Dt) * (_force * _linearJacobian.Linear2 + (_motorForce + _limitForce) * _motorJacobian.Linear2);
-				float L1 = Settings.FORCE_SCALE(step.Dt) * (_force * _linearJacobian.Angular1 - _torque + (_motorForce + _limitForce) * _motorJacobian.Angular1);
-				float L2 = Settings.FORCE_SCALE(step.Dt) * (_force * _linearJacobian.Angular2 + _torque + (_motorForce + _limitForce) * _motorJacobian.Angular2);
-
-				b1._linearVelocity += invMass1 * P1;
-				b1._angularVelocity += invI1 * L1;
-
-				b2._linearVelocity += invMass2 * P2;
-				b2._angularVelocity += invI2 * L2;
-			}
-			else
-			{
-				_force = 0.0f;
-				_torque = 0.0f;
-				_limitForce = 0.0f;
-				_motorForce = 0.0f;
-			}
-
-			_limitPositionImpulse = 0.0f;
-		}
-
-		internal override void SolveVelocityConstraints(TimeStep step)
-		{
-			Body b1 = _body1;
-			Body b2 = _body2;
-
-			float invMass1 = b1._invMass, invMass2 = b2._invMass;
-			float invI1 = b1._invI, invI2 = b2._invI;
-
-			// Solve linear constraint.
-			float linearCdot = _linearJacobian.Compute(b1._linearVelocity, b1._angularVelocity, b2._linearVelocity, b2._angularVelocity);
-			float force = -Settings.FORCE_INV_SCALE(step.Inv_Dt) * _linearMass * linearCdot;
-			_force += force;
-
-			float P = Settings.FORCE_SCALE(step.Dt) * force;
-			b1._linearVelocity += (invMass1 * P) * _linearJacobian.Linear1;
-			b1._angularVelocity += invI1 * P * _linearJacobian.Angular1;
-
-			b2._linearVelocity += (invMass2 * P) * _linearJacobian.Linear2;
-			b2._angularVelocity += invI2 * P * _linearJacobian.Angular2;
-
-			// Solve angular constraint.
-			float angularCdot = b2._angularVelocity - b1._angularVelocity;
-			float torque = -Settings.FORCE_INV_SCALE(step.Inv_Dt) * _angularMass * angularCdot;
-			_torque += torque;
-
-			float L = Settings.FORCE_SCALE(step.Dt) * torque;
-			b1._angularVelocity -= invI1 * L;
-			b2._angularVelocity += invI2 * L;
-
-			// Solve linear motor constraint.
-			if (_enableMotor && _limitState != LimitState.EqualLimits)
-			{
-				float motorCdot = _motorJacobian.Compute(b1._linearVelocity, b1._angularVelocity, b2._linearVelocity, b2._angularVelocity) - _motorSpeed;
-				float motorForce = -Settings.FORCE_INV_SCALE(step.Inv_Dt) * _motorMass * motorCdot;
-				float oldMotorForce = _motorForce;
-				_motorForce = Box2DXMath.Clamp(_motorForce + motorForce, -_maxMotorForce, _maxMotorForce);
-				motorForce = _motorForce - oldMotorForce;
-
-				float P_ = Settings.FORCE_SCALE(step.Dt) * motorForce;
-				b1._linearVelocity += (invMass1 * P_) * _motorJacobian.Linear1;
-				b1._angularVelocity += invI1 * P_ * _motorJacobian.Angular1;
-
-				b2._linearVelocity += (invMass2 * P_) * _motorJacobian.Linear2;
-				b2._angularVelocity += invI2 * P_ * _motorJacobian.Angular2;
-			}
-
-			// Solve linear limit constraint.
-			if (_enableLimit && _limitState != LimitState.InactiveLimit)
-			{
-				float limitCdot = _motorJacobian.Compute(b1._linearVelocity, b1._angularVelocity, b2._linearVelocity, b2._angularVelocity);
-				float limitForce = -Settings.FORCE_INV_SCALE(step.Inv_Dt) * _motorMass * limitCdot;
-
-				if (_limitState == LimitState.EqualLimits)
-				{
-					_limitForce += limitForce;
-				}
-				else if (_limitState == LimitState.AtLowerLimit)
-				{
-					float oldLimitForce = _limitForce;
-					_limitForce = Box2DXMath.Max(_limitForce + limitForce, 0.0f);
-					limitForce = _limitForce - oldLimitForce;
-				}
-				else if (_limitState == LimitState.AtUpperLimit)
-				{
-					float oldLimitForce = _limitForce;
-					_limitForce = Box2DXMath.Min(_limitForce + limitForce, 0.0f);
-					limitForce = _limitForce - oldLimitForce;
-				}
-
-				float P_ = Settings.FORCE_SCALE(step.Dt) * limitForce;
-
-				b1._linearVelocity += (invMass1 * P_) * _motorJacobian.Linear1;
-				b1._angularVelocity += invI1 * P_ * _motorJacobian.Angular1;
-
-				b2._linearVelocity += (invMass2 * P_) * _motorJacobian.Linear2;
-				b2._angularVelocity += invI2 * P_ * _motorJacobian.Angular2;
-			}
-		}
-
-		internal override bool SolvePositionConstraints()
-		{
-			Body b1 = _body1;
-			Body b2 = _body2;
-
-			float invMass1 = b1._invMass, invMass2 = b2._invMass;
-			float invI1 = b1._invI, invI2 = b2._invI;
-
-			Vec2 r1 = Box2DXMath.Mul(b1.GetXForm().R, _localAnchor1 - b1.GetLocalCenter());
-			Vec2 r2 = Box2DXMath.Mul(b2.GetXForm().R, _localAnchor2 - b2.GetLocalCenter());
-			Vec2 p1 = b1._sweep.C + r1;
-			Vec2 p2 = b2._sweep.C + r2;
-			Vec2 d = p2 - p1;
-			Vec2 ay1 = Box2DXMath.Mul(b1.GetXForm().R, _localYAxis1);
-
-			// Solve linear (point-to-line) constraint.
-			float linearC = Vec2.Dot(ay1, d);
-			// Prevent overly large corrections.
-			linearC = Box2DXMath.Clamp(linearC, -Settings.MaxLinearCorrection, Settings.MaxLinearCorrection);
-			float linearImpulse = -_linearMass * linearC;
-
-			b1._sweep.C += (invMass1 * linearImpulse) * _linearJacobian.Linear1;
-			b1._sweep.A += invI1 * linearImpulse * _linearJacobian.Angular1;
-			//b1->SynchronizeTransform(); // updated by angular constraint
-			b2._sweep.C += (invMass2 * linearImpulse) * _linearJacobian.Linear2;
-			b2._sweep.A += invI2 * linearImpulse * _linearJacobian.Angular2;
-			//b2->SynchronizeTransform(); // updated by angular constraint
-
-			float positionError = Box2DXMath.Abs(linearC);
-
-			// Solve angular constraint.
-			float angularC = b2._sweep.A - b1._sweep.A - _refAngle;
-			// Prevent overly large corrections.
-			angularC = Box2DXMath.Clamp(angularC, -Settings.MaxAngularCorrection, Settings.MaxAngularCorrection);
-			float angularImpulse = -_angularMass * angularC;
-
-			b1._sweep.A -= b1._invI * angularImpulse;
-			b2._sweep.A += b2._invI * angularImpulse;
-
-			b1.SynchronizeTransform();
-			b2.SynchronizeTransform();
-
-			float angularError = Box2DXMath.Abs(angularC);
-
-			// Solve linear limit constraint.
-			if (_enableLimit && _limitState != LimitState.InactiveLimit)
-			{
-				Vec2 r1_ = Box2DXMath.Mul(b1.GetXForm().R, _localAnchor1 - b1.GetLocalCenter());
-				Vec2 r2_ = Box2DXMath.Mul(b2.GetXForm().R, _localAnchor2 - b2.GetLocalCenter());
-				Vec2 p1_ = b1._sweep.C + r1_;
-				Vec2 p2_ = b2._sweep.C + r2_;
-				Vec2 d_ = p2_ - p1_;
-				Vec2 ax1 = Box2DXMath.Mul(b1.GetXForm().R, _localXAxis1);
-
-				float translation = Vec2.Dot(ax1, d_);
-				float limitImpulse = 0.0f;
-
-				if (_limitState == LimitState.EqualLimits)
-				{
-					// Prevent large angular corrections
-					float limitC = Box2DXMath.Clamp(translation, -Settings.MaxLinearCorrection, Settings.MaxLinearCorrection);
-					limitImpulse = -_motorMass * limitC;
-					positionError = Box2DXMath.Max(positionError, Box2DXMath.Abs(angularC));
-				}
-				else if (_limitState == LimitState.AtLowerLimit)
-				{
-					float limitC = translation - _lowerTranslation;
-					positionError = Box2DXMath.Max(positionError, -limitC);
-
-					// Prevent large linear corrections and allow some slop.
-					limitC = Box2DXMath.Clamp(limitC + Settings.LinearSlop, -Settings.MaxLinearCorrection, 0.0f);
-					limitImpulse = -_motorMass * limitC;
-					float oldLimitImpulse = _limitPositionImpulse;
-					_limitPositionImpulse = Box2DXMath.Max(_limitPositionImpulse + limitImpulse, 0.0f);
-					limitImpulse = _limitPositionImpulse - oldLimitImpulse;
-				}
-				else if (_limitState == LimitState.AtUpperLimit)
-				{
-					float limitC = translation - _upperTranslation;
-					positionError = Box2DXMath.Max(positionError, limitC);
-
-					// Prevent large linear corrections and allow some slop.
-					limitC = Box2DXMath.Clamp(limitC - Settings.LinearSlop, 0.0f, Settings.MaxLinearCorrection);
-					limitImpulse = -_motorMass * limitC;
-					float oldLimitImpulse = _limitPositionImpulse;
-					_limitPositionImpulse = Box2DXMath.Min(_limitPositionImpulse + limitImpulse, 0.0f);
-					limitImpulse = _limitPositionImpulse - oldLimitImpulse;
-				}
-
-				b1._sweep.C += (invMass1 * limitImpulse) * _motorJacobian.Linear1;
-				b1._sweep.A += invI1 * limitImpulse * _motorJacobian.Angular1;
-				b2._sweep.C += (invMass2 * limitImpulse) * _motorJacobian.Linear2;
-				b2._sweep.A += invI2 * limitImpulse * _motorJacobian.Angular2;
-
-				b1.SynchronizeTransform();
-				b2.SynchronizeTransform();
-			}
-
-			return positionError <= Settings.LinearSlop && angularError <= Settings.AngularSlop;
-		}
-	}
+    // Linear constraint (point-to-line)
+    // d = p2 - p1 = x2 + r2 - x1 - r1
+    // C = dot(perp, d)
+    // Cdot = dot(d, cross(w1, perp)) + dot(perp, v2 + cross(w2, r2) - v1 - cross(w1, r1))
+    //      = -dot(perp, v1) - dot(cross(d + r1, perp), w1) + dot(perp, v2) + dot(cross(r2, perp), v2)
+    // J = [-perp, -cross(d + r1, perp), perp, cross(r2,perp)]
+    //
+    // Angular constraint
+    // C = a2 - a1 + a_initial
+    // Cdot = w2 - w1
+    // J = [0 0 -1 0 0 1]
+    //
+    // K = J * invM * JT
+    //
+    // J = [-a -s1 a s2]
+    //     [0  -1  0  1]
+    // a = perp
+    // s1 = cross(d + r1, a) = cross(p2 - x1, a)
+    // s2 = cross(r2, a) = cross(p2 - x2, a)
+    // Motor/Limit linear constraint
+    // C = dot(ax1, d)
+    // Cdot = = -dot(ax1, v1) - dot(cross(d + r1, ax1), w1) + dot(ax1, v2) + dot(cross(r2, ax1), v2)
+    // J = [-ax1 -cross(d+r1,ax1) ax1 cross(r2,ax1)]
+    // Block Solver
+    // We develop a block solver that includes the joint limit. This makes the limit stiff (inelastic) even
+    // when the mass has poor distribution (leading to large torques about the joint anchor points).
+    //
+    // The Jacobian has 3 rows:
+    // J = [-uT -s1 uT s2] // linear
+    //     [0   -1   0  1] // angular
+    //     [-vT -a1 vT a2] // limit
+    //
+    // u = perp
+    // v = axis
+    // s1 = cross(d + r1, u), s2 = cross(r2, u)
+    // a1 = cross(d + r1, v), a2 = cross(r2, v)
+    // M * (v2 - v1) = JT * df
+    // J * v2 = bias
+    //
+    // v2 = v1 + invM * JT * df
+    // J * (v1 + invM * JT * df) = bias
+    // K * df = bias - J * v1 = -Cdot
+    // K = J * invM * JT
+    // Cdot = J * v1 - bias
+    //
+    // Now solve for f2.
+    // df = f2 - f1
+    // K * (f2 - f1) = -Cdot
+    // f2 = invK * (-Cdot) + f1
+    //
+    // Clamp accumulated limit impulse.
+    // lower: f2(3) = max(f2(3), 0)
+    // upper: f2(3) = min(f2(3), 0)
+    //
+    // Solve for correct f2(1:2)
+    // K(1:2, 1:2) * f2(1:2) = -Cdot(1:2) - K(1:2,3) * f2(3) + K(1:2,1:3) * f1
+    //                       = -Cdot(1:2) - K(1:2,3) * f2(3) + K(1:2,1:2) * f1(1:2) + K(1:2,3) * f1(3)
+    // K(1:2, 1:2) * f2(1:2) = -Cdot(1:2) - K(1:2,3) * (f2(3) - f1(3)) + K(1:2,1:2) * f1(1:2)
+    // f2(1:2) = invK(1:2,1:2) * (-Cdot(1:2) - K(1:2,3) * (f2(3) - f1(3))) + f1(1:2)
+    //
+    // Now compute impulse to be applied:
+    // df = f2 - f1
+
+    /// <summary>
+    /// A prismatic joint. This joint provides one degree of freedom: translation
+    /// along an axis fixed in bodyA. Relative rotation is prevented. You can
+    /// use a joint limit to restrict the range of motion and a joint motor to
+    /// drive the motion or to model joint friction.
+    /// </summary>
+    public class PrismaticJoint : Joint
+    {
+        private Vector2 _localYAxisA;
+        private Vector3 _impulse;
+        private float _lowerTranslation;
+        private float _upperTranslation;
+        private float _maxMotorForce;
+        private float _motorSpeed;
+        private bool _enableLimit;
+        private bool _enableMotor;
+        private LimitState _limitState;
+
+        // Solver temp
+        private int _indexA;
+        private int _indexB;
+        private Vector2 _localCenterA;
+        private Vector2 _localCenterB;
+        private float _invMassA;
+        private float _invMassB;
+        private float _invIA;
+        private float _invIB;
+        private Vector2 _axis, _perp;
+        private float _s1, _s2;
+        private float _a1, _a2;
+        private Mat33 _K;
+        private float _motorMass;
+        private Vector2 _axis1;
+
+        internal PrismaticJoint()
+        {
+            JointType = JointType.Prismatic;
+        }
+
+        /// <summary>
+        /// This requires defining a line of
+        /// motion using an axis and an anchor point. The definition uses local
+        /// anchor points and a local axis so that the initial configuration
+        /// can violate the constraint slightly. The joint translation is zero
+        /// when the local anchor points coincide in world space. Using local
+        /// anchors and a local axis helps when saving and loading a game.
+        /// </summary>
+        /// <param name="bodyA">The first body.</param>
+        /// <param name="bodyB">The second body.</param>
+        /// <param name="anchorA">The first body anchor.</param>
+        /// <param name="anchorB">The second body anchor.</param>
+        /// <param name="axis">The axis.</param>
+        /// <param name="useWorldCoordinates">Set to true if you are using world coordinates as anchors.</param>
+        public PrismaticJoint(Body bodyA, Body bodyB, Vector2 anchorA, Vector2 anchorB, Vector2 axis, bool useWorldCoordinates = false)
+            : base(bodyA, bodyB)
+        {
+            Initialize(anchorA, anchorB, axis, useWorldCoordinates);
+        }
+
+        public PrismaticJoint(Body bodyA, Body bodyB, Vector2 anchor, Vector2 axis, bool useWorldCoordinates = false)
+            : base(bodyA, bodyB)
+        {
+            Initialize(anchor, anchor, axis, useWorldCoordinates);
+        }
+
+        private void Initialize(Vector2 localAnchorA, Vector2 localAnchorB, Vector2 axis, bool useWorldCoordinates)
+        {
+            JointType = JointType.Prismatic;
+
+            if (useWorldCoordinates)
+            {
+                LocalAnchorA = BodyA.GetLocalPoint(localAnchorA);
+                LocalAnchorB = BodyB.GetLocalPoint(localAnchorB);
+            }
+            else
+            {
+                LocalAnchorA = localAnchorA;
+                LocalAnchorB = localAnchorB;
+            }
+
+            Axis = axis; //FPE only: store the orignal value for use in Serialization
+            ReferenceAngle = BodyB.Rotation - BodyA.Rotation;
+
+            _limitState = LimitState.Inactive;
+        }
+
+        /// <summary>
+        /// The local anchor point on BodyA
+        /// </summary>
+        public Vector2 LocalAnchorA { get; set; }
+
+        /// <summary>
+        /// The local anchor point on BodyB
+        /// </summary>
+        public Vector2 LocalAnchorB { get; set; }
+
+        public override Vector2 WorldAnchorA
+        {
+            get { return BodyA.GetWorldPoint(LocalAnchorA); }
+            set { LocalAnchorA = BodyA.GetLocalPoint(value); }
+        }
+
+        public override Vector2 WorldAnchorB
+        {
+            get { return BodyB.GetWorldPoint(LocalAnchorB); }
+            set { LocalAnchorB = BodyB.GetLocalPoint(value); }
+        }
+
+        /// <summary>
+        /// Get the current joint translation, usually in meters.
+        /// </summary>
+        /// <value></value>
+        public float JointTranslation
+        {
+            get
+            {
+                Vector2 d = BodyB.GetWorldPoint(LocalAnchorB) - BodyA.GetWorldPoint(LocalAnchorA);
+                Vector2 axis = BodyA.GetWorldVector(LocalXAxis);
+
+                return Vector2.Dot(d, axis);
+            }
+        }
+
+        /// <summary>
+        /// Get the current joint translation speed, usually in meters per second.
+        /// </summary>
+        /// <value></value>
+        public float JointSpeed
+        {
+            get
+            {
+                Transform xf1, xf2;
+                BodyA.GetTransform(out xf1);
+                BodyB.GetTransform(out xf2);
+
+                Vector2 r1 = MathUtils.Mul(ref xf1.q, LocalAnchorA - BodyA.LocalCenter);
+                Vector2 r2 = MathUtils.Mul(ref xf2.q, LocalAnchorB - BodyB.LocalCenter);
+                Vector2 p1 = BodyA._sweep.C + r1;
+                Vector2 p2 = BodyB._sweep.C + r2;
+                Vector2 d = p2 - p1;
+                Vector2 axis = BodyA.GetWorldVector(LocalXAxis);
+
+                Vector2 v1 = BodyA._linearVelocity;
+                Vector2 v2 = BodyB._linearVelocity;
+                float w1 = BodyA._angularVelocity;
+                float w2 = BodyB._angularVelocity;
+
+                float speed = Vector2.Dot(d, MathUtils.Cross(w1, axis)) + Vector2.Dot(axis, v2 + MathUtils.Cross(w2, r2) - v1 - MathUtils.Cross(w1, r1));
+                return speed;
+            }
+        }
+
+        /// <summary>
+        /// Is the joint limit enabled?
+        /// </summary>
+        /// <value><c>true</c> if [limit enabled]; otherwise, <c>false</c>.</value>
+        public bool LimitEnabled
+        {
+            get { return _enableLimit; }
+            set
+            {
+                Debug.Assert(BodyA.FixedRotation == false || BodyB.FixedRotation == false, "Warning: limits does currently not work with fixed rotation");
+
+                if (value != _enableLimit)
+                {
+                    WakeBodies();
+                    _enableLimit = value;
+                    _impulse.Z = 0;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Get the lower joint limit, usually in meters.
+        /// </summary>
+        /// <value></value>
+        public float LowerLimit
+        {
+            get { return _lowerTranslation; }
+            set
+            {
+                if (value != _lowerTranslation)
+                {
+                    WakeBodies();
+                    _lowerTranslation = value;
+                    _impulse.Z = 0.0f;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Get the upper joint limit, usually in meters.
+        /// </summary>
+        /// <value></value>
+        public float UpperLimit
+        {
+            get { return _upperTranslation; }
+            set
+            {
+                if (value != _upperTranslation)
+                {
+                    WakeBodies();
+                    _upperTranslation = value;
+                    _impulse.Z = 0.0f;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Set the joint limits, usually in meters.
+        /// </summary>
+        /// <param name="lower">The lower limit</param>
+        /// <param name="upper">The upper limit</param>
+        public void SetLimits(float lower, float upper)
+        {
+            if (upper != _upperTranslation || lower != _lowerTranslation)
+            {
+                WakeBodies();
+                _upperTranslation = upper;
+                _lowerTranslation = lower;
+                _impulse.Z = 0.0f;
+            }
+        }
+
+        /// <summary>
+        /// Is the joint motor enabled?
+        /// </summary>
+        /// <value><c>true</c> if [motor enabled]; otherwise, <c>false</c>.</value>
+        public bool MotorEnabled
+        {
+            get { return _enableMotor; }
+            set
+            {
+                WakeBodies();
+                _enableMotor = value;
+            }
+        }
+
+        /// <summary>
+        /// Set the motor speed, usually in meters per second.
+        /// </summary>
+        /// <value>The speed.</value>
+        public float MotorSpeed
+        {
+            set
+            {
+                WakeBodies();
+                _motorSpeed = value;
+            }
+            get { return _motorSpeed; }
+        }
+
+        /// <summary>
+        /// Set the maximum motor force, usually in N.
+        /// </summary>
+        /// <value>The force.</value>
+        public float MaxMotorForce
+        {
+            get { return _maxMotorForce; }
+            set
+            {
+                WakeBodies();
+                _maxMotorForce = value;
+            }
+        }
+
+        /// <summary>
+        /// Get the current motor impulse, usually in N.
+        /// </summary>
+        /// <value></value>
+        public float MotorImpulse { get; set; }
+
+        /// <summary>
+        /// Gets the motor force.
+        /// </summary>
+        /// <param name="invDt">The inverse delta time</param>
+        public float GetMotorForce(float invDt)
+        {
+            return invDt * MotorImpulse;
+        }
+
+        /// <summary>
+        /// The axis at which the joint moves.
+        /// </summary>
+        public Vector2 Axis
+        {
+            get { return _axis1; }
+            set
+            {
+                _axis1 = value;
+                LocalXAxis = BodyA.GetLocalVector(_axis1);
+                LocalXAxis.Normalize();
+                _localYAxisA = MathUtils.Cross(1.0f, LocalXAxis);
+            }
+        }
+
+        /// <summary>
+        /// The axis in local coordinates relative to BodyA
+        /// </summary>
+        public Vector2 LocalXAxis { get; private set; }
+
+        /// <summary>
+        /// The reference angle.
+        /// </summary>
+        public float ReferenceAngle { get; set; }
+
+        public override Vector2 GetReactionForce(float invDt)
+        {
+            return invDt * (_impulse.X * _perp + (MotorImpulse + _impulse.Z) * _axis);
+        }
+
+        public override float GetReactionTorque(float invDt)
+        {
+            return invDt * _impulse.Y;
+        }
+
+        internal override void InitVelocityConstraints(ref SolverData data)
+        {
+            _indexA = BodyA.IslandIndex;
+            _indexB = BodyB.IslandIndex;
+            _localCenterA = BodyA._sweep.LocalCenter;
+            _localCenterB = BodyB._sweep.LocalCenter;
+            _invMassA = BodyA._invMass;
+            _invMassB = BodyB._invMass;
+            _invIA = BodyA._invI;
+            _invIB = BodyB._invI;
+
+            Vector2 cA = data.positions[_indexA].c;
+            float aA = data.positions[_indexA].a;
+            Vector2 vA = data.velocities[_indexA].v;
+            float wA = data.velocities[_indexA].w;
+
+            Vector2 cB = data.positions[_indexB].c;
+            float aB = data.positions[_indexB].a;
+            Vector2 vB = data.velocities[_indexB].v;
+            float wB = data.velocities[_indexB].w;
+
+            Rot qA = new Rot(aA), qB = new Rot(aB);
+
+            // Compute the effective masses.
+            Vector2 rA = MathUtils.Mul(qA, LocalAnchorA - _localCenterA);
+            Vector2 rB = MathUtils.Mul(qB, LocalAnchorB - _localCenterB);
+            Vector2 d = (cB - cA) + rB - rA;
+
+            float mA = _invMassA, mB = _invMassB;
+            float iA = _invIA, iB = _invIB;
+
+            // Compute motor Jacobian and effective mass.
+            {
+                _axis = MathUtils.Mul(qA, LocalXAxis);
+                _a1 = MathUtils.Cross(d + rA, _axis);
+                _a2 = MathUtils.Cross(rB, _axis);
+
+                _motorMass = mA + mB + iA * _a1 * _a1 + iB * _a2 * _a2;
+                if (_motorMass > 0.0f)
+                {
+                    _motorMass = 1.0f / _motorMass;
+                }
+            }
+
+            // Prismatic constraint.
+            {
+                _perp = MathUtils.Mul(qA, _localYAxisA);
+
+                _s1 = MathUtils.Cross(d + rA, _perp);
+                _s2 = MathUtils.Cross(rB, _perp);
+
+                float k11 = mA + mB + iA * _s1 * _s1 + iB * _s2 * _s2;
+                float k12 = iA * _s1 + iB * _s2;
+                float k13 = iA * _s1 * _a1 + iB * _s2 * _a2;
+                float k22 = iA + iB;
+                if (k22 == 0.0f)
+                {
+                    // For bodies with fixed rotation.
+                    k22 = 1.0f;
+                }
+                float k23 = iA * _a1 + iB * _a2;
+                float k33 = mA + mB + iA * _a1 * _a1 + iB * _a2 * _a2;
+
+                _K.ex = new Vector3(k11, k12, k13);
+                _K.ey = new Vector3(k12, k22, k23);
+                _K.ez = new Vector3(k13, k23, k33);
+            }
+
+            // Compute motor and limit terms.
+            if (_enableLimit)
+            {
+                float jointTranslation = Vector2.Dot(_axis, d);
+                if (Math.Abs(_upperTranslation - _lowerTranslation) < 2.0f * Settings.LinearSlop)
+                {
+                    _limitState = LimitState.Equal;
+                }
+                else if (jointTranslation <= _lowerTranslation)
+                {
+                    if (_limitState != LimitState.AtLower)
+                    {
+                        _limitState = LimitState.AtLower;
+                        _impulse.Z = 0.0f;
+                    }
+                }
+                else if (jointTranslation >= _upperTranslation)
+                {
+                    if (_limitState != LimitState.AtUpper)
+                    {
+                        _limitState = LimitState.AtUpper;
+                        _impulse.Z = 0.0f;
+                    }
+                }
+                else
+                {
+                    _limitState = LimitState.Inactive;
+                    _impulse.Z = 0.0f;
+                }
+            }
+            else
+            {
+                _limitState = LimitState.Inactive;
+                _impulse.Z = 0.0f;
+            }
+
+            if (_enableMotor == false)
+            {
+                MotorImpulse = 0.0f;
+            }
+
+            if (Settings.EnableWarmstarting)
+            {
+                // Account for variable time step.
+                _impulse *= data.step.dtRatio;
+                MotorImpulse *= data.step.dtRatio;
+
+                Vector2 P = _impulse.X * _perp + (MotorImpulse + _impulse.Z) * _axis;
+                float LA = _impulse.X * _s1 + _impulse.Y + (MotorImpulse + _impulse.Z) * _a1;
+                float LB = _impulse.X * _s2 + _impulse.Y + (MotorImpulse + _impulse.Z) * _a2;
+
+                vA -= mA * P;
+                wA -= iA * LA;
+
+                vB += mB * P;
+                wB += iB * LB;
+            }
+            else
+            {
+                _impulse = Vector3.Zero;
+                MotorImpulse = 0.0f;
+            }
+
+            data.velocities[_indexA].v = vA;
+            data.velocities[_indexA].w = wA;
+            data.velocities[_indexB].v = vB;
+            data.velocities[_indexB].w = wB;
+        }
+
+        internal override void SolveVelocityConstraints(ref SolverData data)
+        {
+            Vector2 vA = data.velocities[_indexA].v;
+            float wA = data.velocities[_indexA].w;
+            Vector2 vB = data.velocities[_indexB].v;
+            float wB = data.velocities[_indexB].w;
+
+            float mA = _invMassA, mB = _invMassB;
+            float iA = _invIA, iB = _invIB;
+
+            // Solve linear motor constraint.
+            if (_enableMotor && _limitState != LimitState.Equal)
+            {
+                float Cdot = Vector2.Dot(_axis, vB - vA) + _a2 * wB - _a1 * wA;
+                float impulse = _motorMass * (_motorSpeed - Cdot);
+                float oldImpulse = MotorImpulse;
+                float maxImpulse = data.step.dt * _maxMotorForce;
+                MotorImpulse = MathUtils.Clamp(MotorImpulse + impulse, -maxImpulse, maxImpulse);
+                impulse = MotorImpulse - oldImpulse;
+
+                Vector2 P = impulse * _axis;
+                float LA = impulse * _a1;
+                float LB = impulse * _a2;
+
+                vA -= mA * P;
+                wA -= iA * LA;
+
+                vB += mB * P;
+                wB += iB * LB;
+            }
+
+            Vector2 Cdot1 = new Vector2();
+            Cdot1.X = Vector2.Dot(_perp, vB - vA) + _s2 * wB - _s1 * wA;
+            Cdot1.Y = wB - wA;
+
+            if (_enableLimit && _limitState != LimitState.Inactive)
+            {
+                // Solve prismatic and limit constraint in block form.
+                float Cdot2;
+                Cdot2 = Vector2.Dot(_axis, vB - vA) + _a2 * wB - _a1 * wA;
+                Vector3 Cdot = new Vector3(Cdot1.X, Cdot1.Y, Cdot2);
+
+                Vector3 f1 = _impulse;
+                Vector3 df = _K.Solve33(-Cdot);
+                _impulse += df;
+
+                if (_limitState == LimitState.AtLower)
+                {
+                    _impulse.Z = Math.Max(_impulse.Z, 0.0f);
+                }
+                else if (_limitState == LimitState.AtUpper)
+                {
+                    _impulse.Z = Math.Min(_impulse.Z, 0.0f);
+                }
+
+                // f2(1:2) = invK(1:2,1:2) * (-Cdot(1:2) - K(1:2,3) * (f2(3) - f1(3))) + f1(1:2)
+                Vector2 b = -Cdot1 - (_impulse.Z - f1.Z) * new Vector2(_K.ez.X, _K.ez.Y);
+                Vector2 f2r = _K.Solve22(b) + new Vector2(f1.X, f1.Y);
+                _impulse.X = f2r.X;
+                _impulse.Y = f2r.Y;
+
+                df = _impulse - f1;
+
+                Vector2 P = df.X * _perp + df.Z * _axis;
+                float LA = df.X * _s1 + df.Y + df.Z * _a1;
+                float LB = df.X * _s2 + df.Y + df.Z * _a2;
+
+                vA -= mA * P;
+                wA -= iA * LA;
+
+                vB += mB * P;
+                wB += iB * LB;
+            }
+            else
+            {
+                // Limit is inactive, just solve the prismatic constraint in block form.
+                Vector2 df = _K.Solve22(-Cdot1);
+                _impulse.X += df.X;
+                _impulse.Y += df.Y;
+
+                Vector2 P = df.X * _perp;
+                float LA = df.X * _s1 + df.Y;
+                float LB = df.X * _s2 + df.Y;
+
+                vA -= mA * P;
+                wA -= iA * LA;
+
+                vB += mB * P;
+                wB += iB * LB;
+            }
+
+            data.velocities[_indexA].v = vA;
+            data.velocities[_indexA].w = wA;
+            data.velocities[_indexB].v = vB;
+            data.velocities[_indexB].w = wB;
+        }
+
+        internal override bool SolvePositionConstraints(ref SolverData data)
+        {
+            Vector2 cA = data.positions[_indexA].c;
+            float aA = data.positions[_indexA].a;
+            Vector2 cB = data.positions[_indexB].c;
+            float aB = data.positions[_indexB].a;
+
+            Rot qA = new Rot(aA), qB = new Rot(aB);
+
+            float mA = _invMassA, mB = _invMassB;
+            float iA = _invIA, iB = _invIB;
+
+            // Compute fresh Jacobians
+            Vector2 rA = MathUtils.Mul(qA, LocalAnchorA - _localCenterA);
+            Vector2 rB = MathUtils.Mul(qB, LocalAnchorB - _localCenterB);
+            Vector2 d = cB + rB - cA - rA;
+
+            Vector2 axis = MathUtils.Mul(qA, LocalXAxis);
+            float a1 = MathUtils.Cross(d + rA, axis);
+            float a2 = MathUtils.Cross(rB, axis);
+            Vector2 perp = MathUtils.Mul(qA, _localYAxisA);
+
+            float s1 = MathUtils.Cross(d + rA, perp);
+            float s2 = MathUtils.Cross(rB, perp);
+
+            Vector3 impulse;
+            Vector2 C1 = new Vector2();
+            C1.X = Vector2.Dot(perp, d);
+            C1.Y = aB - aA - ReferenceAngle;
+
+            float linearError = Math.Abs(C1.X);
+            float angularError = Math.Abs(C1.Y);
+
+            bool active = false;
+            float C2 = 0.0f;
+            if (_enableLimit)
+            {
+                float translation = Vector2.Dot(axis, d);
+                if (Math.Abs(_upperTranslation - _lowerTranslation) < 2.0f * Settings.LinearSlop)
+                {
+                    // Prevent large angular corrections
+                    C2 = MathUtils.Clamp(translation, -Settings.MaxLinearCorrection, Settings.MaxLinearCorrection);
+                    linearError = Math.Max(linearError, Math.Abs(translation));
+                    active = true;
+                }
+                else if (translation <= _lowerTranslation)
+                {
+                    // Prevent large linear corrections and allow some slop.
+                    C2 = MathUtils.Clamp(translation - _lowerTranslation + Settings.LinearSlop, -Settings.MaxLinearCorrection, 0.0f);
+                    linearError = Math.Max(linearError, _lowerTranslation - translation);
+                    active = true;
+                }
+                else if (translation >= _upperTranslation)
+                {
+                    // Prevent large linear corrections and allow some slop.
+                    C2 = MathUtils.Clamp(translation - _upperTranslation - Settings.LinearSlop, 0.0f, Settings.MaxLinearCorrection);
+                    linearError = Math.Max(linearError, translation - _upperTranslation);
+                    active = true;
+                }
+            }
+
+            if (active)
+            {
+                float k11 = mA + mB + iA * s1 * s1 + iB * s2 * s2;
+                float k12 = iA * s1 + iB * s2;
+                float k13 = iA * s1 * a1 + iB * s2 * a2;
+                float k22 = iA + iB;
+                if (k22 == 0.0f)
+                {
+                    // For fixed rotation
+                    k22 = 1.0f;
+                }
+                float k23 = iA * a1 + iB * a2;
+                float k33 = mA + mB + iA * a1 * a1 + iB * a2 * a2;
+
+                Mat33 K = new Mat33();
+                K.ex = new Vector3(k11, k12, k13);
+                K.ey = new Vector3(k12, k22, k23);
+                K.ez = new Vector3(k13, k23, k33);
+
+                Vector3 C = new Vector3();
+                C.X = C1.X;
+                C.Y = C1.Y;
+                C.Z = C2;
+
+                impulse = K.Solve33(-C);
+            }
+            else
+            {
+                float k11 = mA + mB + iA * s1 * s1 + iB * s2 * s2;
+                float k12 = iA * s1 + iB * s2;
+                float k22 = iA + iB;
+                if (k22 == 0.0f)
+                {
+                    k22 = 1.0f;
+                }
+
+                Mat22 K = new Mat22();
+                K.ex = new Vector2(k11, k12);
+                K.ey = new Vector2(k12, k22);
+
+                Vector2 impulse1 = K.Solve(-C1);
+                impulse = new Vector3();
+                impulse.X = impulse1.X;
+                impulse.Y = impulse1.Y;
+                impulse.Z = 0.0f;
+            }
+
+            Vector2 P = impulse.X * perp + impulse.Z * axis;
+            float LA = impulse.X * s1 + impulse.Y + impulse.Z * a1;
+            float LB = impulse.X * s2 + impulse.Y + impulse.Z * a2;
+
+            cA -= mA * P;
+            aA -= iA * LA;
+            cB += mB * P;
+            aB += iB * LB;
+
+            data.positions[_indexA].c = cA;
+            data.positions[_indexA].a = aA;
+            data.positions[_indexB].c = cB;
+            data.positions[_indexB].a = aB;
+
+            return linearError <= Settings.LinearSlop && angularError <= Settings.AngularSlop;
+        }
+    }
 }
