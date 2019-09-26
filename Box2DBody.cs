@@ -1,4 +1,28 @@
-﻿using System;
+﻿/*
+  NoZ Game Engine
+
+  Copyright(c) 2019 NoZ Games, LLC
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files(the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions :
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+*/
+
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -12,6 +36,8 @@ namespace NoZ.Platform.Box2D
         internal Body _body;
 
         public NoZ.Physics.CollisionEnterDelegate OnCollisionEnter { get;  set; }
+
+        public NoZ.Object UserData { get; set; }
 
         Vector2 Physics.IBody.LinearVelocity {
             get => new Vector2(_body.LinearVelocity.X, _body.LinearVelocity.Y);
@@ -27,7 +53,21 @@ namespace NoZ.Platform.Box2D
 
         private bool OnCollision(Fixture fixtureA, Fixture fixtureB, Contact contact)
         {
-            return OnCollisionEnter != null ? OnCollisionEnter() : false;
+            if (null == OnCollisionEnter)
+                return true;
+
+            var collision = new Physics.Collision();
+            if (fixtureA.Body == _body)
+            {
+                collision.Collider = (fixtureA.UserData as Box2DCollider).Node;
+                collision.OtherCollider = (fixtureB.UserData as Box2DCollider).Node;
+            }
+            else
+            {
+                collision.OtherCollider = (fixtureA.UserData as Box2DCollider).Node;
+                collision.Collider = (fixtureB.UserData as Box2DCollider).Node;
+            }
+            return OnCollisionEnter(collision);
         }
 
         public Physics.PhysicsLayer Layers {
