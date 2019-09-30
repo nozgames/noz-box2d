@@ -81,11 +81,11 @@ namespace NoZ.Platform.Box2D
             {
                 var polygon = _shape as PolygonShape;
 
-                var verts = new Graphics.Vertex[polygon.Vertices.Count];
+                var verts = new Vertex[polygon.Vertices.Count];
                 var indexBuffer = new short[verts.Length * 2];
                 for (int i = 0; i < verts.Length; i++)
                 {
-                    verts[i] = new Graphics.Vertex(
+                    verts[i] = new Vertex(
                         _fixture.Body.Position.X - polygon.Vertices[i].X,
                         _fixture.Body.Position.Y - polygon.Vertices[i].Y,
                         Color.Green);
@@ -100,12 +100,12 @@ namespace NoZ.Platform.Box2D
             else if (_shape is CircleShape)
             {
                 var circle = _shape as CircleShape;
-                var verts = new Graphics.Vertex[16];
+                var verts = new Vertex[16];
                 var indexBuffer = new short[verts.Length * 2];
                 for (int i=0; i<verts.Length;i++)
                 {
                     var angle = i / (float)verts.Length * MathEx.PI * 2.0f;
-                    verts[i] = new Graphics.Vertex(
+                    verts[i] = new Vertex(
                         _fixture.Body.Position.X + MathEx.Sin(angle) * circle.Radius,
                         _fixture.Body.Position.Y + MathEx.Cos(angle) * circle.Radius,
                         Color.Green);
