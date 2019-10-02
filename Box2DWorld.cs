@@ -61,13 +61,13 @@ namespace NoZ.Platform.Box2D
             (body as Box2DBody).Dispose();
         }
 
-        void Physics.IWorld.DrawDebug(NoZ.GraphicsContext gc, Physics.PhysicsLayer layers)
+        void Physics.IWorld.DrawDebug(NoZ.GraphicsContext gc, uint mask = Physics.Physics.CollisionMaskAll)
         {
             gc.SetImage(null);
             gc.SetTransform(Matrix3.Identity);
             foreach (var body in _world.BodyList)
                 foreach (var fixture in body.FixtureList)
-                    if((fixture.CollisionCategories & (Category)layers) != 0)
+                    if((fixture.CollisionCategories & (Category)mask) != 0)
                         (fixture.UserData as Box2DCollider).DrawDebug(gc);
         }
 

@@ -39,15 +39,15 @@ namespace NoZ.Platform.Box2D
 
         public Physics.Collider Node { get; set; }
 
-        public Physics.PhysicsLayer Layers {
-            get => (Physics.PhysicsLayer)(uint)_fixture.CollisionCategories;
+        public uint CollisionMask {
+            get => (uint)_fixture.CollisionCategories;
             set {
                 _fixture.CollisionCategories = (Category)value;
             }
         }
 
-        public Physics.PhysicsLayer CollidesWithLayers {
-            get => (Physics.PhysicsLayer)(uint)_fixture.CollidesWith;
+        public uint CollidesWithMask {
+            get => (uint)_fixture.CollidesWith;
             set {
                 _fixture.CollidesWith = (Category)value;
             }
@@ -75,6 +75,18 @@ namespace NoZ.Platform.Box2D
             _fixture.UserData = this;
         }
 
+        public Box2DCollider(Box2DBody body, in Vector2 position, Vector2[] points)
+        {
+            var verts = new Vertices(points.Length);
+            foreach(var point in points)
+                verts.Add(new Microsoft.Xna.Framework.Vector2(position.x + point.x, position.y + point.y));
+
+            _shape = new PolygonShape(verts, 0.0f);
+
+            _fixture = body._body.CreateFixture(_shape);
+            _fixture.UserData = this;
+        }
+
         public void DrawDebug(GraphicsContext gc)
         {
             if (_shape is PolygonShape)
@@ -86,8 +98,8 @@ namespace NoZ.Platform.Box2D
                 for (int i = 0; i < verts.Length; i++)
                 {
                     verts[i] = new Vertex(
-                        _fixture.Body.Position.X - polygon.Vertices[i].X,
-                        _fixture.Body.Position.Y - polygon.Vertices[i].Y,
+                        _fixture.Body.Position.X + polygon.Vertices[i].X,
+                        _fixture.Body.Position.Y + polygon.Vertices[i].Y,
                         Color.Green);
                     indexBuffer[i * 2] = (short)i;
                     indexBuffer[i * 2 + 1] = (short)(i + 1);

@@ -67,14 +67,15 @@ namespace NoZ.Platform.Box2D
                 collision.OtherCollider = (fixtureA.UserData as Box2DCollider).Node;
                 collision.Collider = (fixtureB.UserData as Box2DCollider).Node;
             }
-            return OnCollisionEnter(collision);
+            OnCollisionEnter(collision);
+            return true;
         }
 
-        public Physics.PhysicsLayer Layers {
+        public uint CollisionMask {
             set => _body.CollisionCategories = (Category)value;
         }
 
-        public Physics.PhysicsLayer CollidesWithLayers {
+        public uint CollidesWithMask {
             set => _body.CollidesWith = (Category)value;
         }
 
@@ -95,6 +96,13 @@ namespace NoZ.Platform.Box2D
         Physics.ICollider Physics.IBody.AddCircleCollider(in Vector2 position, float radius)
         {
             var collider = new Box2DCollider(this, position, radius);
+            _body.OnCollision += OnCollision;
+            return collider;
+        }
+
+        Physics.ICollider Physics.IBody.AddPolygonCollider(in Vector2 position, in Vector2[] points)
+        {
+            var collider = new Box2DCollider(this, position, points);
             _body.OnCollision += OnCollision;
             return collider;
         }
