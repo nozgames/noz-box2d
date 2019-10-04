@@ -93,21 +93,35 @@ namespace NoZ.Platform.Box2D
 
         Physics.ICollider Physics.IBody.AddBoxCollider(in Vector2 position, in Vector2 size)
         {
-            var collider = new Box2DCollider(this, position, size);
+            var collider = Box2DCollider.CreateBox(this, position, size);
             _body.OnCollision += OnCollision;
             return collider;
         }
 
         Physics.ICollider Physics.IBody.AddCircleCollider(in Vector2 position, float radius)
         {
-            var collider = new Box2DCollider(this, position, radius);
+            var collider = Box2DCollider.CreateCircle(this, position, radius);
             _body.OnCollision += OnCollision;
             return collider;
         }
 
         Physics.ICollider Physics.IBody.AddPolygonCollider(in Vector2 position, in Vector2[] points)
         {
-            var collider = new Box2DCollider(this, position, points);
+            var collider = Box2DCollider.CreatePolygon(this, position, points);
+            _body.OnCollision += OnCollision;
+            return collider;
+        }
+
+        Physics.ICollider Physics.IBody.AddEdgeCollider (in Vector2 start, in Vector2 end)
+        {
+            var collider = Box2DCollider.CreateEdge (this, start, end);
+            _body.OnCollision += OnCollision;
+            return collider;
+        }
+
+        Physics.ICollider Physics.IBody.AddChainCollider(in Vector2 position, Vector2[] points, bool loop)
+        {
+            var collider = Box2DCollider.CreateChain(this, position, points, loop);
             _body.OnCollision += OnCollision;
             return collider;
         }

@@ -34,7 +34,6 @@ namespace NoZ.Platform.Box2D
 {
     public class Box2DCollider : Physics.ICollider
     {
-        internal Shape _shape;
         internal Fixture _fixture;
 
         public Physics.Collider Node { get; set; }
@@ -53,47 +52,53 @@ namespace NoZ.Platform.Box2D
             }
         }
 
-        public Box2DCollider(Box2DBody body, in Vector2 position, in Vector2 size)
+        protected Box2DCollider(Box2DBody body, Shape shape)
         {
-            var verts = new Vertices(4);
-            verts.Add(new Microsoft.Xna.Framework.Vector2(-size.x * 0.5f + position.x, -size.y * 0.5f + position.y));
-            verts.Add(new Microsoft.Xna.Framework.Vector2( size.x * 0.5f + position.x, -size.y * 0.5f + position.y));
-            verts.Add(new Microsoft.Xna.Framework.Vector2( size.x * 0.5f + position.x,  size.y * 0.5f + position.y));
-            verts.Add(new Microsoft.Xna.Framework.Vector2(-size.x * 0.5f + position.x,  size.y * 0.5f + position.y));
-
-            _shape = new PolygonShape(verts, 0.0f);
-
-            _fixture = body._body.CreateFixture(_shape);
+            _fixture = body._body.CreateFixture(shape);
             _fixture.UserData = this;
         }
 
-        public Box2DCollider(Box2DBody body, in Vector2 position, float radius)
+        public static Box2DCollider CreateBox (Box2DBody body, in Vector2 position, in Vector2 size) {
+            var verts = new Vertices(4);
+            var hsize = size * 0.5f;
+            verts.Add((position-hsize).ToXna());
+            verts.Add(new Microsoft.Xna.Framework.Vector2( hsize.x + position.x, -hsize.y + position.y));
+            verts.Add((position+hsize).ToXna());
+            verts.Add(new Microsoft.Xna.Framework.Vector2(-hsize.x + position.x,  hsize.y + position.y));
+            return new Box2DCollider(body, new PolygonShape(verts, 0.0f));
+        }
+
+        public static Box2DCollider CreateCircle (Box2DBody body, in Vector2 position, float radius)
         {
             var circleShape = new CircleShape(radius, 0.0f);
-            circleShape.Position = new Microsoft.Xna.Framework.Vector2(position.x, position.y);
-            _shape = circleShape;
-
-            _fixture = body._body.CreateFixture(_shape);
-            _fixture.UserData = this;
+            circleShape.Position = position.ToXna();
+            return new Box2DCollider(body, circleShape);
         }
 
-        public Box2DCollider(Box2DBody body, in Vector2 position, Vector2[] points)
+        public static Box2DCollider CreatePolygon (Box2DBody body, in Vector2 position, Vector2[] points)
         {
             var verts = new Vertices(points.Length);
             foreach(var point in points)
-                verts.Add(new Microsoft.Xna.Framework.Vector2(position.x + point.x, position.y + point.y));
+                verts.Add((position+point).ToXna());
 
-            _shape = new PolygonShape(verts, 0.0f);
+            return new Box2DCollider(body, new PolygonShape(verts, 0.0f));
+        }
 
-            _fixture = body._body.CreateFixture(_shape);
-            _fixture.UserData = this;
+        public static Box2DCollider CreateEdge (Box2DBody body, in Vector2 start, in Vector2 end)
+        {
+            return new Box2DCollider(body, new EdgeShape(start.ToXna(), end.ToXna()));
+        }
+
+        public static Box2DCollider CreateChain (Box2DBody body, in Vector2 position, in Vector2[] points, bool loop=false)
+        {
+            return null;
         }
 
         public void DrawDebug(GraphicsContext gc)
         {
-            if (_shape is PolygonShape)
+            if (_fixture.Shape is PolygonShape)
             {
-                var polygon = _shape as PolygonShape;
+                var polygon = _fixture.Shape as PolygonShape;
 
                 var verts = new Vertex[polygon.Vertices.Count];
                 var indexBuffer = new short[verts.Length * 2];
@@ -111,9 +116,9 @@ namespace NoZ.Platform.Box2D
 
                 gc.Draw(PrimitiveType.LineList, verts, verts.Length, indexBuffer, indexBuffer.Length);
             }
-            else if (_shape is CircleShape)
+            else if (_fixture.Shape is CircleShape)
             {
-                var circle = _shape as CircleShape;
+                var circle = _fixture.Shape as CircleShape;
                 var verts = new Vertex[16];
                 var indexBuffer = new short[verts.Length * 2];
                 for (int i=0; i<verts.Length;i++)
@@ -128,6 +133,24 @@ namespace NoZ.Platform.Box2D
                 }
 
                 indexBuffer[indexBuffer.Length - 1] = 0;
+                gc.Draw(PrimitiveType.LineList, verts, verts.Length, indexBuffer, indexBuffer.Length);
+            }
+            else if (_fixture.Shape is EdgeShape)
+            {
+                var edge = _fixture.Shape as EdgeShape;
+                var verts = new Vertex[2];
+                var indexBuffer = new short[2];
+                verts[0] = new Vertex(
+                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.X + edge.Vertex1.X),
+                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.Y + edge.Vertex1.Y),
+                        Color.Green);
+                verts[1] = new Vertex(
+                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.X + edge.Vertex2.X),
+                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.Y + edge.Vertex2.Y),
+                        Color.Green);
+
+                indexBuffer[0] = 0;
+                indexBuffer[1] = 1;
                 gc.Draw(PrimitiveType.LineList, verts, verts.Length, indexBuffer, indexBuffer.Length);
             }
         }
