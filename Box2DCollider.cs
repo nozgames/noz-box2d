@@ -69,7 +69,9 @@ namespace NoZ.Platform.Box2D
 
         public Box2DCollider(Box2DBody body, in Vector2 position, float radius)
         {
-            _shape = new CircleShape(radius, 0.0f);
+            var circleShape = new CircleShape(radius, 0.0f);
+            circleShape.Position = new Microsoft.Xna.Framework.Vector2(position.x, position.y);
+            _shape = circleShape;
 
             _fixture = body._body.CreateFixture(_shape);
             _fixture.UserData = this;
@@ -98,8 +100,8 @@ namespace NoZ.Platform.Box2D
                 for (int i = 0; i < verts.Length; i++)
                 {
                     verts[i] = new Vertex(
-                        _fixture.Body.Position.X + polygon.Vertices[i].X,
-                        _fixture.Body.Position.Y + polygon.Vertices[i].Y,
+                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.X + polygon.Vertices[i].X),
+                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.Y + polygon.Vertices[i].Y),
                         Color.Green);
                     indexBuffer[i * 2] = (short)i;
                     indexBuffer[i * 2 + 1] = (short)(i + 1);
@@ -118,8 +120,8 @@ namespace NoZ.Platform.Box2D
                 {
                     var angle = i / (float)verts.Length * MathEx.PI * 2.0f;
                     verts[i] = new Vertex(
-                        _fixture.Body.Position.X + MathEx.Sin(angle) * circle.Radius,
-                        _fixture.Body.Position.Y + MathEx.Cos(angle) * circle.Radius,
+                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.X + circle.Position.X + MathEx.Sin(angle) * circle.Radius),
+                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.Y + circle.Position.Y + MathEx.Cos(angle) * circle.Radius),
                         Color.Green);
                     indexBuffer[i * 2] = (short)i;
                     indexBuffer[i * 2 + 1] = (short)(i + 1);

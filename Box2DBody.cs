@@ -39,6 +39,11 @@ namespace NoZ.Platform.Box2D
 
         public NoZ.Object UserData { get; set; }
 
+        public bool IsBullet {
+            get => _body.IsBullet;
+            set => _body.IsBullet = value;
+        }
+
         Vector2 Physics.IBody.LinearVelocity {
             get => new Vector2(_body.LinearVelocity.X, _body.LinearVelocity.Y);
             set => _body.LinearVelocity = new Microsoft.Xna.Framework.Vector2(value.x, value.y);
