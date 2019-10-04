@@ -44,9 +44,27 @@ namespace NoZ.Platform.Box2D
             set => _body.IsBullet = value;
         }
 
+        public bool IsSensor {
+            set => _body.IsSensor = value;
+        }
+
         Vector2 Physics.IBody.LinearVelocity {
             get => new Vector2(_body.LinearVelocity.X, _body.LinearVelocity.Y);
             set => _body.LinearVelocity = new Microsoft.Xna.Framework.Vector2(value.x, value.y);
+        }
+
+        float Physics.IBody.LinearDamping {
+            get => _body.LinearDamping;
+            set => _body.LinearDamping = value;
+        }
+
+        bool Physics.IBody.IsEnabled {
+            get => _body.Enabled;
+            set => _body.Enabled = value;
+        }
+
+        bool Physics.IBody.IsKinematic {
+            set => _body.IsKinematic = value;
         }
 
         public Box2DBody(World world, BodyType bodyType)
@@ -73,6 +91,7 @@ namespace NoZ.Platform.Box2D
                 collision.Collider = (fixtureB.UserData as Box2DCollider).Node;
             }
             OnCollisionEnter(collision);
+
             return true;
         }
 
@@ -82,6 +101,11 @@ namespace NoZ.Platform.Box2D
 
         public uint CollidesWithMask {
             set => _body.CollidesWith = (Category)value;
+        }
+
+        void Physics.IBody.ApplyForce(in Vector2 force)
+        {
+            _body.ApplyForce(force.ToXna());
         }
 
         Vector2 Physics.IBody.Position {
