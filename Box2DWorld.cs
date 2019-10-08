@@ -30,38 +30,38 @@ using FarseerPhysics.Dynamics;
 
 namespace NoZ.Platform.Box2D
 {
-    public class Box2DWorld : Physics.IWorld
+    public class Box2DWorld : IWorld
     {
-        private World _world;
+        private FarseerPhysics.Dynamics.World _world;
 
         public Box2DWorld()
         {
-            _world = new World(new Microsoft.Xna.Framework.Vector2(0));
+            _world = new FarseerPhysics.Dynamics.World(new Microsoft.Xna.Framework.Vector2(0));
         }
 
-        public Physics.IBody CreateRigidBody()
+        public IBody CreateRigidBody()
         {
             return new Box2DBody(_world, BodyType.Dynamic);
         }
 
-        public Physics.IBody CreateStaticBody()
+        public IBody CreateStaticBody()
         {
             return new Box2DBody(_world, BodyType.Static);
         }
 
-        public Physics.IBody CreateKinematicBody()
+        public IBody CreateKinematicBody()
         {
             return new Box2DBody(_world, BodyType.Kinematic);
         }
 
-        void Physics.IWorld.Step(float deltaTime) => _world.Step(deltaTime);
+        void IWorld.Step(float deltaTime) => _world.Step(deltaTime);
 
-        public void RemoveRigidBody(Physics.IBody body)
+        public void RemoveRigidBody(IBody body)
         {
             (body as Box2DBody).Dispose();
         }
 
-        void Physics.IWorld.DrawDebug(NoZ.GraphicsContext gc, uint mask = Physics.Physics.CollisionMaskAll)
+        void IWorld.DrawDebug(NoZ.GraphicsContext gc, uint mask = Physics.CollisionMaskAll)
         {
             gc.Image = null;
             gc.Transform = Matrix3.Identity;

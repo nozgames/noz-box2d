@@ -32,11 +32,11 @@ using FarseerPhysics.Dynamics;
 
 namespace NoZ.Platform.Box2D
 {
-    public class Box2DCollider : Physics.ICollider
+    public class Box2DCollider : ICollider
     {
         internal Fixture _fixture;
 
-        public Physics.Collider Node { get; set; }
+        public Collider Node { get; set; }
 
         public uint CollisionMask {
             get => (uint)_fixture.CollisionCategories;
@@ -105,8 +105,8 @@ namespace NoZ.Platform.Box2D
                 for (int i = 0; i < verts.Length; i++)
                 {
                     verts[i] = new Vertex(
-                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.X + polygon.Vertices[i].X),
-                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.Y + polygon.Vertices[i].Y),
+                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.X + polygon.Vertices[i].X),
+                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.Y + polygon.Vertices[i].Y),
                         Color.Green);
                     indexBuffer[i * 2] = (short)i;
                     indexBuffer[i * 2 + 1] = (short)(i + 1);
@@ -125,8 +125,8 @@ namespace NoZ.Platform.Box2D
                 {
                     var angle = i / (float)verts.Length * MathEx.PI * 2.0f;
                     verts[i] = new Vertex(
-                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.X + circle.Position.X + MathEx.Sin(angle) * circle.Radius),
-                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.Y + circle.Position.Y + MathEx.Cos(angle) * circle.Radius),
+                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.X + circle.Position.X + MathEx.Sin(angle) * circle.Radius),
+                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.Y + circle.Position.Y + MathEx.Cos(angle) * circle.Radius),
                         Color.Green);
                     indexBuffer[i * 2] = (short)i;
                     indexBuffer[i * 2 + 1] = (short)(i + 1);
@@ -141,12 +141,12 @@ namespace NoZ.Platform.Box2D
                 var verts = new Vertex[2];
                 var indexBuffer = new short[2];
                 verts[0] = new Vertex(
-                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.X + edge.Vertex1.X),
-                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.Y + edge.Vertex1.Y),
+                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.X + edge.Vertex1.X),
+                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.Y + edge.Vertex1.Y),
                         Color.Green);
                 verts[1] = new Vertex(
-                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.X + edge.Vertex2.X),
-                        NoZ.Physics.Physics.MetersToPixels(_fixture.Body.Position.Y + edge.Vertex2.Y),
+                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.X + edge.Vertex2.X),
+                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.Y + edge.Vertex2.Y),
                         Color.Green);
 
                 indexBuffer[0] = 0;

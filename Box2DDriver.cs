@@ -26,8 +26,6 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-using NoZ.Physics;
-
 namespace NoZ.Platform.Box2D
 {
     public class Box2DDriver : IPhysicsDriver

@@ -31,11 +31,11 @@ using FarseerPhysics.Dynamics.Contacts;
 
 namespace NoZ.Platform.Box2D
 {
-    public class Box2DBody : Physics.IBody
+    public class Box2DBody : IBody
     {
         internal Body _body;
 
-        public NoZ.Physics.CollisionEnterDelegate OnCollisionEnter { get;  set; }
+        public CollisionEnterDelegate OnCollisionEnter { get;  set; }
 
         public NoZ.Object UserData { get; set; }
 
@@ -48,26 +48,26 @@ namespace NoZ.Platform.Box2D
             set => _body.IsSensor = value;
         }
 
-        Vector2 Physics.IBody.LinearVelocity {
+        Vector2 IBody.LinearVelocity {
             get => new Vector2(_body.LinearVelocity.X, _body.LinearVelocity.Y);
             set => _body.LinearVelocity = new Microsoft.Xna.Framework.Vector2(value.x, value.y);
         }
 
-        float Physics.IBody.LinearDamping {
+        float IBody.LinearDamping {
             get => _body.LinearDamping;
             set => _body.LinearDamping = value;
         }
 
-        bool Physics.IBody.IsEnabled {
+        bool IBody.IsEnabled {
             get => _body.Enabled;
             set => _body.Enabled = value;
         }
 
-        bool Physics.IBody.IsKinematic {
+        bool IBody.IsKinematic {
             set => _body.IsKinematic = value;
         }
 
-        public Box2DBody(World world, BodyType bodyType)
+        public Box2DBody(FarseerPhysics.Dynamics.World world, BodyType bodyType)
         {
             _body = new Body(world);
             _body.UserData = this;
@@ -79,7 +79,7 @@ namespace NoZ.Platform.Box2D
             if (null == OnCollisionEnter)
                 return true;
 
-            var collision = new Physics.Collision();
+            var collision = new Collision();
             if (fixtureA.Body == _body)
             {
                 collision.Collider = (fixtureA.UserData as Box2DCollider).Node;
@@ -103,47 +103,47 @@ namespace NoZ.Platform.Box2D
             set => _body.CollidesWith = (Category)value;
         }
 
-        void Physics.IBody.ApplyForce(in Vector2 force)
+        void IBody.ApplyForce(in Vector2 force)
         {
             _body.ApplyForce(force.ToXna());
         }
 
-        Vector2 Physics.IBody.Position {
+        Vector2 IBody.Position {
             get => new Vector2(_body.Position.X, _body.Position.Y);
             set {
                 _body.Position = new Microsoft.Xna.Framework.Vector2(value.x, value.y);
             }
         }
 
-        Physics.ICollider Physics.IBody.AddBoxCollider(in Vector2 position, in Vector2 size)
+        ICollider IBody.AddBoxCollider(in Vector2 position, in Vector2 size)
         {
             var collider = Box2DCollider.CreateBox(this, position, size);
             _body.OnCollision += OnCollision;
             return collider;
         }
 
-        Physics.ICollider Physics.IBody.AddCircleCollider(in Vector2 position, float radius)
+        ICollider IBody.AddCircleCollider(in Vector2 position, float radius)
         {
             var collider = Box2DCollider.CreateCircle(this, position, radius);
             _body.OnCollision += OnCollision;
             return collider;
         }
 
-        Physics.ICollider Physics.IBody.AddPolygonCollider(in Vector2 position, in Vector2[] points)
+        ICollider IBody.AddPolygonCollider(in Vector2 position, in Vector2[] points)
         {
             var collider = Box2DCollider.CreatePolygon(this, position, points);
             _body.OnCollision += OnCollision;
             return collider;
         }
 
-        Physics.ICollider Physics.IBody.AddEdgeCollider (in Vector2 start, in Vector2 end)
+        ICollider IBody.AddEdgeCollider (in Vector2 start, in Vector2 end)
         {
             var collider = Box2DCollider.CreateEdge (this, start, end);
             _body.OnCollision += OnCollision;
             return collider;
         }
 
-        Physics.ICollider Physics.IBody.AddChainCollider(in Vector2 position, Vector2[] points, bool loop)
+        ICollider IBody.AddChainCollider(in Vector2 position, Vector2[] points, bool loop)
         {
             var collider = Box2DCollider.CreateChain(this, position, points, loop);
             _body.OnCollision += OnCollision;
