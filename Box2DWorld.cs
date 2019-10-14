@@ -64,7 +64,6 @@ namespace NoZ.Platform.Box2D
         void IWorld.DrawDebug(NoZ.GraphicsContext gc, uint mask = Physics.CollisionMaskAll)
         {
             gc.Image = null;
-            gc.Transform = Matrix3.Identity;
             foreach (var body in _world.BodyList)
                 foreach (var fixture in body.FixtureList)
                     if((fixture.CollisionCategories & (Category)mask) != 0)

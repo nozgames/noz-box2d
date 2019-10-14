@@ -96,62 +96,57 @@ namespace NoZ.Platform.Box2D
 
         public void DrawDebug(GraphicsContext gc)
         {
+            gc.Color = Color.Green;
             if (_fixture.Shape is PolygonShape)
             {
                 var polygon = _fixture.Shape as PolygonShape;
 
-                var verts = new Vertex[polygon.Vertices.Count];
-                var indexBuffer = new short[verts.Length * 2];
-                for (int i = 0; i < verts.Length; i++)
+                var first = new Vector2(
+                    NoZ.Physics.MetersToPixels(_fixture.Body.Position.X + polygon.Vertices[0].X),
+                    NoZ.Physics.MetersToPixels(_fixture.Body.Position.Y + polygon.Vertices[0].Y));
+                var prev = first;
+
+                for (int i = 1; i < polygon.Vertices.Count; i++)
                 {
-                    verts[i] = new Vertex(
+                    var vert = new Vector2(
                         NoZ.Physics.MetersToPixels(_fixture.Body.Position.X + polygon.Vertices[i].X),
-                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.Y + polygon.Vertices[i].Y),
-                        Color.Green);
-                    indexBuffer[i * 2] = (short)i;
-                    indexBuffer[i * 2 + 1] = (short)(i + 1);
+                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.Y + polygon.Vertices[i].Y));
+                    gc.DrawDebugLine(prev, vert);
+                    prev = vert;
                 }
 
-                indexBuffer[indexBuffer.Length - 1] = 0;
-
-                gc.Draw(PrimitiveType.LineList, verts, verts.Length, indexBuffer, indexBuffer.Length);
+                gc.DrawDebugLine(prev, first);
             }
             else if (_fixture.Shape is CircleShape)
             {
                 var circle = _fixture.Shape as CircleShape;
-                var verts = new Vertex[16];
-                var indexBuffer = new short[verts.Length * 2];
-                for (int i=0; i<verts.Length;i++)
-                {
-                    var angle = i / (float)verts.Length * MathEx.PI * 2.0f;
-                    verts[i] = new Vertex(
-                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.X + circle.Position.X + MathEx.Sin(angle) * circle.Radius),
-                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.Y + circle.Position.Y + MathEx.Cos(angle) * circle.Radius),
-                        Color.Green);
-                    indexBuffer[i * 2] = (short)i;
-                    indexBuffer[i * 2 + 1] = (short)(i + 1);
-                }
+                var segmentCount = 16;
 
-                indexBuffer[indexBuffer.Length - 1] = 0;
-                gc.Draw(PrimitiveType.LineList, verts, verts.Length, indexBuffer, indexBuffer.Length);
+                for (int i=0; i< segmentCount; i++)
+                {
+                    var a1 = i / (float)segmentCount * MathEx.PI * 2.0f;
+                    var a2 = (i-1) / (float)segmentCount * MathEx.PI * 2.0f;
+                    gc.DrawDebugLine(
+                        new Vector2(
+                            NoZ.Physics.MetersToPixels(_fixture.Body.Position.X + circle.Position.X + MathEx.Sin(a1) * circle.Radius),
+                            NoZ.Physics.MetersToPixels(_fixture.Body.Position.Y + circle.Position.Y + MathEx.Cos(a1) * circle.Radius)
+                        ),
+                        new Vector2(
+                            NoZ.Physics.MetersToPixels(_fixture.Body.Position.X + circle.Position.X + MathEx.Sin(a2) * circle.Radius),
+                            NoZ.Physics.MetersToPixels(_fixture.Body.Position.Y + circle.Position.Y + MathEx.Cos(a2) * circle.Radius)
+                        ));
+                }
             }
             else if (_fixture.Shape is EdgeShape)
             {
                 var edge = _fixture.Shape as EdgeShape;
-                var verts = new Vertex[2];
-                var indexBuffer = new short[2];
-                verts[0] = new Vertex(
+                gc.DrawDebugLine(
+                    new Vector2(
                         NoZ.Physics.MetersToPixels(_fixture.Body.Position.X + edge.Vertex1.X),
-                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.Y + edge.Vertex1.Y),
-                        Color.Green);
-                verts[1] = new Vertex(
+                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.Y + edge.Vertex1.Y)),
+                    new Vector2(
                         NoZ.Physics.MetersToPixels(_fixture.Body.Position.X + edge.Vertex2.X),
-                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.Y + edge.Vertex2.Y),
-                        Color.Green);
-
-                indexBuffer[0] = 0;
-                indexBuffer[1] = 1;
-                gc.Draw(PrimitiveType.LineList, verts, verts.Length, indexBuffer, indexBuffer.Length);
+                        NoZ.Physics.MetersToPixels(_fixture.Body.Position.Y + edge.Vertex2.Y)));
             }
         }
 
