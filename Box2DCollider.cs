@@ -122,6 +122,16 @@ namespace NoZ.Platform.Box2D
                 var circle = _fixture.Shape as CircleShape;
                 var segmentCount = 16;
 
+#if true
+                _fixture.GetAABB(out var aabb, 0);
+                gc.DrawDebugLine(
+                      NoZ.Physics.MetersToPixels(new Vector2(_fixture.Body.Position.X + aabb.LowerBound.X, _fixture.Body.Position.Y + aabb.LowerBound.Y)),
+                      NoZ.Physics.MetersToPixels(new Vector2(_fixture.Body.Position.X + aabb.UpperBound.X, _fixture.Body.Position.Y + aabb.LowerBound.Y)));
+                gc.DrawDebugLine(
+                      NoZ.Physics.MetersToPixels(new Vector2(_fixture.Body.Position.X + aabb.UpperBound.X, _fixture.Body.Position.Y + aabb.LowerBound.Y)),
+                      NoZ.Physics.MetersToPixels(new Vector2(_fixture.Body.Position.X + aabb.UpperBound.X, _fixture.Body.Position.Y + aabb.UpperBound.Y)));
+#endif
+
                 for (int i=0; i< segmentCount; i++)
                 {
                     var a1 = i / (float)segmentCount * MathEx.PI * 2.0f;

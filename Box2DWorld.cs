@@ -27,16 +27,23 @@ using System.Collections.Generic;
 using System.Text;
 
 using FarseerPhysics.Dynamics;
+using FarseerPhysics.Collision;
 
 namespace NoZ.Platform.Box2D
 {
     public class Box2DWorld : IWorld
     {
         private FarseerPhysics.Dynamics.World _world;
+        private Func<Fixture, bool> _queryCallbackDelegate;
+        private ICollider[] _queryResults;
+        private int _queryResultIndex;
+        private int _queryResultCount;
+        private uint _queryMask;
 
         public Box2DWorld()
         {
             _world = new FarseerPhysics.Dynamics.World(new Microsoft.Xna.Framework.Vector2(0));
+            _queryCallbackDelegate = QueryCallback;
         }
 
         public IBody CreateRigidBody()
@@ -73,6 +80,41 @@ namespace NoZ.Platform.Box2D
         public void Dispose()
         {
             _world = null;
+        }
+
+        private bool QueryCallback (Fixture fixture)
+        {
+            var collider = fixture.UserData as Box2DCollider;
+            if(collider != null)
+            {
+                if ((collider.CollisionMask & _queryMask) == 0)
+                    return true;
+
+                _queryResults[_queryResultIndex++] = collider;
+                return (--_queryResultCount > 0);
+            }
+
+            return true;
+        }        
+
+        public int Query (in Rect rect, uint mask, ICollider[] results, int index, int count)
+        {
+            var aabb = new AABB
+            {
+                LowerBound = rect.TopLeft.ToXna(),
+                UpperBound = rect.BottomRight.ToXna()
+            };
+
+            _queryResultCount = MathEx.Max(0,MathEx.Min(results.Length - index, count));
+            if (_queryResultCount == 0)
+                return 0;
+
+            _queryMask = mask;
+            _queryResultIndex = index;
+            _queryResults = results;
+            _world.QueryAABB( _queryCallbackDelegate, ref aabb);
+
+            return _queryResultIndex - index;
         }
     }
 }
